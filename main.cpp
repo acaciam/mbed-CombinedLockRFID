@@ -87,6 +87,7 @@ DigitalOut shaftMotorDown(PD_4);
 DigitalIn manual(PD_5);
 void shaftMotor(void);
 bool shaftPackPres = 0;
+int shaftCnt = 0;
 
 void setup(void);				
 void movedown(int c);				
@@ -277,7 +278,7 @@ void movedown(int c){
     elevatorRedWire	= 0; //A11		
 }				
 void moveup(int c){				
-int i;				
+    int i;				
 	int r = 5; // on count time			
 	int o = 4; // off count time =r-o			
 	//power control sides A8,A9,A10,A11				
@@ -553,17 +554,41 @@ void shaftMotor(){
     if((!manual && shaftBmSns) | (!manual && shaftPackPres)){ // 
         shaftPackPres = 1;
     }
+    else{
+        shaftPackPres = 0;
+        shaftCnt = 0;
+    }
     if(manual){
         if(shaftButUp){
             shaftMotorUp = 1;
             shaftMotorDown = 0;
         }
         else if(shaftButDown){
+            shaftMotorUp = 0;
             shaftMotorDown = 1;
-            shaftMotorDown = 1;
+        }
+        else{ //else no movement
+            shaftMotorUp = 0;
+            shaftMotorDown = 0;
         }
     }
     else if(shaftPackPres){
+        //move up to the top, then move all the way down
+        shaftCnt++;
+        if(shaftCnt <= 180){  //120*5ms should be 9s (give 9s to get all the way up)
+            shaftMotorUp = 1;
+            shaftMotorDown = 0;
+            delayMs(5);
+        }
+        if(shaftCnt > 180 && shaftCnt <= 360){ //give another 9s to get back to the bottom
+            shaftMotorUp = 0;
+            shaftMotorDown = 1;
+            delayMs(5);
+        }
+        if(shaftCnt > 360){
+            shaftPackPres = 0;
+            shaftCnt = 0;
+        }
 
     }
 }
