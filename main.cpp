@@ -17,8 +17,9 @@
 #include "MFRC522.h"
 #include "stm32f4xx.h"  				
 #include <stdbool.h>	
-
-
+#include "Firebase.h"
+#include "trng_api.h"
+#include "NTPclient.h"
 
 // Nucleo Pin for MFRC522 reset (pick another D pin if you need D8)
 #define MF_RESET    D8
@@ -75,6 +76,17 @@ DigitalIn interiorMotion(PC_6);
 DigitalIn mArmCasePres(PC_7);
 DigitalIn mArmHome(PC_8);
 #define mArmOutMotionDetector PC_9
+
+
+
+DigitalIn shaftButUp(PD_0);
+DigitalIn shaftButDown(PD_1);
+DigitalIn shaftBmSns(PD_2);
+DigitalOut shaftMotorUp(PD_3);
+DigitalOut shaftMotorDown(PD_4);
+DigitalIn manual(PD_5);
+void shaftMotor(void);
+bool shaftPackPres = 0;
 
 void setup(void);				
 void movedown(int c);				
@@ -169,6 +181,7 @@ int main(void) {
                 }
                 printf("\n\n\r");
             }
+
         }
         
 
@@ -183,7 +196,8 @@ int main(void) {
             delayMs(5000);			
             moveup(travelup);			            
         }				        
-                    
+    shaftMotor();
+
     }  				
 } 				
 				
@@ -536,7 +550,22 @@ void multiarm(void){
     induct=false;
     }
 
+void shaftMotor(){
+    if((!manual && shaftBmSns) | (!manual && shaftPackPres)){ // 
+        shaftPackPres = 1;
+    }
+    if(manual){
+        if(shaftButUp){
+            shaftMotorUp = 1;
+        }
+        else if(shaftButDown){
+            shaftMotorDown = 1;
+        }
+    }
+    else if(shaftPackPres){
 
+    }
+}
 
 
 

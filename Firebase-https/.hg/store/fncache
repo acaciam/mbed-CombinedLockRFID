@@ -1,0 +1,10 @@
+data/source/http_request_parser.h.i
+data/Firebase.h.i
+data/http_parser/http_parser.h.i
+data/source/http_request_builder.h.i
+data/mbedtls_entropy_config.h.i
+data/http_parser/http_parser.c.i
+data/source/http_response.h.i
+data/source/https_request.h.i
+data/source/http_request_base.h.i
+data/source/http_parsed_url.h.i
