@@ -17,9 +17,9 @@
 #include "MFRC522.h"
 #include "stm32f4xx.h"  				
 #include <stdbool.h>	
-#include "Firebase.h"
-#include "trng_api.h"
-#include "NTPclient.h"
+// #include "Firebase.h"
+// #include "trng_api.h"
+// #include "NTPclient.h"
 
 // Nucleo Pin for MFRC522 reset (pick another D pin if you need D8)
 #define MF_RESET    D8
@@ -548,8 +548,7 @@ void multiarm(void){
     }
     pwmMotorCount.pulsewidth(0.0015); //TIM2->CCR1 = stopped;
     induct=false;
-    }
-
+}
 void shaftMotor(){
     if((!manual && shaftBmSns) | (!manual && shaftPackPres)){ // 
         shaftPackPres = 1;
@@ -557,8 +556,10 @@ void shaftMotor(){
     if(manual){
         if(shaftButUp){
             shaftMotorUp = 1;
+            shaftMotorDown = 0;
         }
         else if(shaftButDown){
+            shaftMotorDown = 1;
             shaftMotorDown = 1;
         }
     }
@@ -566,6 +567,3 @@ void shaftMotor(){
 
     }
 }
-
-
-
