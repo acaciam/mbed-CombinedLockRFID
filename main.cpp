@@ -579,11 +579,19 @@ void shaftMotor(){
             shaftMotorUp = 1;
             shaftMotorDown = 0;
             delayMs(5);
+            //copying on/off controls from moveup function (may or may not be necessary)
+            shaftMotorUp = 0;
+            shaftMotorDown = 0;
+            delayMs(1);
         }
         if(shaftCnt > 180 && shaftCnt <= 360){ //give another 9s to get back to the bottom
             shaftMotorUp = 0;
             shaftMotorDown = 1;
             delayMs(5);
+            //copying on/off controls from movedown function (may or may not be necessary)
+            shaftMotorUp = 0;
+            shaftMotorDown = 0;
+            delayMs(1);
         }
         if(shaftCnt > 360){
             shaftPackPres = 0;
