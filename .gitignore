@@ -8,3 +8,5 @@ BUILD
 compile_commands.json
 .clangd
 .cache
+Firebase-https
+NTPclient

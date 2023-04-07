@@ -575,7 +575,7 @@ void shaftMotor(){
     else if(shaftPackPres){
         //move up to the top, then move all the way down
         shaftCnt++;
-        if(shaftCnt <= 180){  //120*5ms should be 9s (give 9s to get all the way up)
+        if(shaftCnt <= 180){  //180*5ms should be 9s (give 9s to get all the way up)
             shaftMotorUp = 1;
             shaftMotorDown = 0;
             delayMs(5);
