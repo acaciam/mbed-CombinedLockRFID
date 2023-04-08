@@ -41,19 +41,27 @@ BufferedSerial     pc(UART_TX, UART_RX, 9600);
 MFRC522    RfChip   (SPI_MOSI, SPI_MISO, SPI_SCK, PG_2, MF_RESET);
 
 
-//PA assigns --> used PE instead (Kept PWM as PA_5)
+//PA assigns --> used PE instead (Kept PWM as PA_5) 
+//redone to account for new solenoid and elevator motor that require less wires
 DigitalIn elevatorDoor(PE_0, PullUp);
 DigitalIn elevatorPkgBmSns(PE_3, PullUp);
-DigitalIn elevatorSysEn(PE_4, PullUp);
+DigitalIn elevatorAuto (PE_4, PullUp); //elevatorSysEN --> ELevatorAuto || 1 == auto :: 0 == manual
 PwmOut pwmMotorCount(PA_5);
-DigitalOut elevatorPosBlock(PE_6);
-DigitalOut elevatorNegBlock(PE_7);
-DigitalOut elevatorGrnWire(PE_8);
-DigitalOut elevatorYlwWire(PE_9);
-DigitalOut elevatorGryWire(PE_10);
-DigitalOut elevatorRedWire(PE_11);
+DigitalOut elevatorUp(PE_6); //elevatorPosBlock-->elevatorUp
+DigitalOut elevatorDown(PE_7); //elevatorNegBlock --> elevatorDown
+DigitalOut greenSolenoid(PE_8); //elevatorGrnWire --> greenSolenoid
 DigitalIn elevatorTopSwitch(PE_12, PullUp);
 DigitalIn elevatorBotSwitch(PE_15, PullUp);
+
+DigitalIn motorUpBut(PD_0);
+DigitalIn motorDownBut(PD_1);
+void elevatorCtrl(void);
+bool down = false;
+bool up = false;
+int elevatorCnt = 0;
+int traveldown = 800;// number of pulses for stepper motor travel, 200 per revolution.			
+int travelup = 800;	
+
 
 //PB assigns -> switched around PB assignments to fit f429 board
 DigitalIn outBmSns(PB_1, PullUp);
@@ -79,15 +87,6 @@ DigitalIn mArmHome(PC_8);
 
 
 
-DigitalIn shaftButUp(PD_0);
-DigitalIn shaftButDown(PD_1);
-DigitalIn shaftBmSns(PD_2);
-DigitalOut shaftMotorUp(PD_3);
-DigitalOut shaftMotorDown(PD_4);
-DigitalIn manual(PD_5);
-void shaftMotor(void);
-bool shaftPackPres = 0;
-int shaftCnt = 0;
 
 void setup(void);				
 void movedown(int c);				
@@ -133,11 +132,8 @@ int main(void) {
 
 	setup();	
 
-    button.rise(&unlock);  //FIXME replace flip with unlock
-  //  rfidInt.rise(&rfidCardPres);
-
-	int traveldown = 800;// number of pulses for stepper motor travel, 200 per revolution.			
-	int travelup = 800;			
+    button.rise(&unlock);  
+		
 	int condition;// variable for present condition of door.			
 				
 				
@@ -186,167 +182,109 @@ int main(void) {
         }
         
 
-        if((!NFCReq) && (elevatorSysEn)){ // "NFC request (low) and chute mode not depressed/open.			
+        if((!NFCReq) && (elevatorAuto)){ // "NFC request (low) and elevator system is automatic	(1)	
             lock();
             opendoor();
         }			
-                        
-        if(!(elevatorSysEn && elevatorDoor && elevatorPkgBmSns)){ //if package present, DOOR CLOSED and system enable switch is DEPRESSED/GROUND/0. 				
-            delayMs(5000);// wait 5 seconds after door is closed				
-            movedown(traveldown);			
-            delayMs(5000);			
-            moveup(travelup);			            
-        }				        
-    shaftMotor();
+                        				        
+        elevatorCtrl();
 
     }  				
 } 				
+void elevatorCtrl(){
+    
+    if(elevatorAuto && !elevatorPkgBmSns && !elevatorDoor){ // automatic mode and package present and elevator's door closed (all active LOW)
+        delayMs(5000);
+        movedown(traveldown);
+        delayMs(5000);
+        moveup(travelup);
+
+    }
+    if(!elevatorAuto){ //if elevator in Manual mode, buttons control movement
+        if(motorUpBut){
+            if(down){ //checks to stop motor between direction VERY IMPORTANT!!
+                delayMs(500);
+                down = false;
+            }
+            elevatorUp = 1;
+            elevatorDown = 0;
+            up = true;
+            elevatorCnt = 0;
+        }
+        else if(motorDownBut){
+            if(up){ //checks to stop motor between directions VERY IMPORTANT!!
+                delayMs(500);
+                up = false;
+            }
+            elevatorUp = 0;
+            elevatorDown = 1;
+            down = true;
+            elevatorCnt = 0;
+        }
+        else{ //else no movement
+            elevatorUp = 0;
+            elevatorDown = 0;
+            delayMs(1);
+            elevatorCnt++;
+            if(elevatorCnt > 500){ //if motor hasn't been active in at lease 500ms- reset up/down booleans (no longer causes delay before manual up/down) 
+                up = false;
+                down = false;
+                elevatorCnt = 500;
+            }
+        }
+    }
+}
 				
 							
-void movedown(int c){				
-	int i;			
-	int r = 5; // on count time			
-	int o = 4; // off count time =r-o			
-				
-        
-    elevatorGrnWire = 1; //A8
-    elevatorYlwWire = 1; //A9
-    elevatorGryWire = 1; //A10
-    elevatorRedWire	= 1; //A11	
+void movedown(int c){		
+    int i = 0;		
+    //ensure solenoid is off before proceeding
+    greenSolenoid = 0;
 
-    elevatorPosBlock = 1; //A6
-    elevatorNegBlock = 1; //A7
-			
-				
+    //motor off delay for 1000ms (ensure no fuse blown)
+    elevatorUp = 0; //A6
+    elevatorDown = 0; //A7
+	delayMs(1000);		
 				
 	//c=c/2; // count is for each coil.			
-	for(i = 0; i<= c; i++){			
-		if (!elevatorTopSwitch) {	
-            //active low A11, A10	
-	        elevatorGryWire = 0; //A10
-            elevatorRedWire	= 0; //A11 	
-
-            //phase 1	
-            //active low A11, A10	
-	        elevatorGryWire = 0; //A10
-            elevatorRedWire	= 0; //A11 	
-            delayMs(r);			
-	        elevatorGryWire = 1; 
-            elevatorRedWire	= 1; 	
-            delayMs(r-o);		
-                    
-				
-            //phase 2		
-            //active low A9, A10	
-	        elevatorGryWire = 0; //A10
-            elevatorYlwWire	= 0; //A9		
-            delayMs(r);		
-            elevatorGryWire = 1; //A10
-            elevatorYlwWire	= 1; //A9			
-            delayMs(r-o);		
-                    
-                    
-            //phase 3		
-            //active low A9, A8	
-	        elevatorGrnWire = 0; //A8
-            elevatorYlwWire	= 0; //A9		
-            delayMs(r);		
-            elevatorGrnWire = 1; //A8
-            elevatorYlwWire	= 1; //A9			
-            delayMs(r-o);
-
-            //phase 4		
-            //active low A11, A8	
-	        elevatorRedWire = 0; //A11
-            elevatorGrnWire	= 0; //A8		
-            delayMs(r);		
-            elevatorRedWire = 1; //A11
-            elevatorGrnWire	= 1; //A8				
-            delayMs(r-o);		
-                    
-                    
-		}		
-				
+	for(i = 0; i<= c; i++){		
+        if(elevatorBotSwitch){ //break from the for loops section once the elevator has reached the bottom
+            break;
+        }	
+        elevatorUp = 0;
+        elevatorDown = 1;
+        delayMs(10);		
 	}	
-    // cut common power
-    elevatorPosBlock = 0; //A6
-    elevatorNegBlock = 0; //A7		
-	// cut motor outputs	
-    elevatorGrnWire = 0; //A8
-    elevatorYlwWire = 0; //A9
-    elevatorGryWire = 0; //A10
-    elevatorRedWire	= 0; //A11		
+    //motor off
+    elevatorUp = 0; //A6
+    elevatorDown = 0; //A7		
 }				
 void moveup(int c){				
     int i;				
-	int r = 5; // on count time			
-	int o = 4; // off count time =r-o			
-	//power control sides A8,A9,A10,A11				
-    elevatorGrnWire = 1; //A8
-    elevatorYlwWire = 1; //A9
-    elevatorGryWire = 1; //A10
-    elevatorRedWire	= 1; //A11	
-    //power supply side pin A6,A7
-    elevatorPosBlock = 1; //A6
-    elevatorNegBlock = 1; //A7		
-				
+		
+   //ensure solenoid is off before proceeding
+    greenSolenoid = 0;
+
+    //motor off delay for 1000ms (ensure no fuse blown)
+    elevatorUp = 0; //A6
+    elevatorDown = 0; //A7
+	delayMs(1000);					
 				
 	//c=c/2; // count is for each coil.			
-	for(i = 0; i<= c; i++){			
-	if (!elevatorBotSwitch) {			
-		//phase 1				
-        //active low A9, A8	
-	    elevatorGrnWire = 0; //A8
-        elevatorYlwWire	= 0; //A9		
-        delayMs(r);		
-        elevatorGrnWire = 1; //A8
-        elevatorYlwWire	= 1; //A9			
-        delayMs(r-o);		
-		//phase 2		
-		 //active low A9, A10	
-	    elevatorGryWire = 0; //A10
-        elevatorYlwWire	= 0; //A9		
-        delayMs(r);		
-        elevatorGryWire = 1; //A10
-        elevatorYlwWire	= 1; //A9	
-		delayMs(r-o);		
-				
-				
-		//phase 3		
-		//active low A11, A10	
-	    elevatorGryWire = 0; //A10
-        elevatorRedWire	= 0; //A11 	
-        delayMs(r);			
-	    elevatorGryWire = 1; 
-        elevatorRedWire	= 1; 			
-		delayMs(r-o);		
-				
-				
-		//phase 4		
-        //active low A11, A8	
-	    elevatorRedWire = 0; //A11
-        elevatorGrnWire	= 0; //A8		
-        delayMs(r);		
-        elevatorRedWire = 1; //A11
-        elevatorGrnWire	= 1; //A8			
-		delayMs(r-o);		
-				
-				
+	for(i = 0; i<= c; i++){		//at least 800 cycle * 10ms OR stop when motor has reached the top
+        if(elevatorTopSwitch){ //break from the for loops section once the elevator has reached the Top
+            break;
+        }				
+        elevatorUp = 1; //A6
+        elevatorDown = 0; //A7
+	    delayMs(10);							
 	}			
-				
-	}			
-    // cut common power
-    elevatorPosBlock = 0; //A6
-    elevatorNegBlock = 0; //A7		
-	// cut motor outputs	
-    elevatorGrnWire = 0; //A8
-    elevatorYlwWire = 0; //A9
-    elevatorGryWire = 0; //A10
-    elevatorRedWire	= 0; //A11			
+    // motor off
+    elevatorUp = 0; //A6
+    elevatorDown = 0; //A7				
 }				
-void lightdisplay(void){				
-	int doormode=elevatorSysEn;			
-	if(lightDrSysEn && (!elevatorSysEn)){			
+void lightdisplay(void){						
+	if(lightDrSysEn && (!elevatorAuto)){		//LIGHTS UP WHEN SYS IS MANUAL	
 	    lightDrSysEn = 0;
     } 			
 //	GPIOB->ODR |= (doormode << 3);// activate led for door mode			
@@ -421,53 +359,32 @@ void entrancedetection(void){
 				
 				
 				
-void opendoor(void){				
+void opendoor(void){	
+    int timeout=0;				
 	lightAccessGrnt = 1; // turn on request to enter light. pb8			
-	//power control sides A8,A9,A10,A11				
-    elevatorGrnWire = 1; //A8
-    elevatorYlwWire = 1; //A9
-    elevatorGryWire = 1; //A10
-    elevatorRedWire	= 1; //A11	
-    //power supply side pin A6,A7
-    elevatorPosBlock = 1; //A6
-    elevatorNegBlock = 1; //A7				
-	int timeout=0;			
+    //ensure the elevator motor will be inactive
+    elevatorUp = 0;
+    elevatorDown = 0;
 				
 				
-	elevatorGrnWire = 0;//activate solenoid pa8			
+	greenSolenoid = 1;//activate solenoid pa8			
 				
 	while ((!drClsdSwitch) && (timeout<=5)  ){//while door closed, before time runs out			
         delayMs(500);			
-        timeout=timeout+1;			
+        timeout++;			
 	}			
 				
-				
-    // cut common power
-    elevatorPosBlock = 0; //A6
-    elevatorNegBlock = 0; //A7		
+						
 	// cut motor outputs	
-    elevatorGrnWire = 0; //A8
-    elevatorYlwWire = 0; //A9
-    elevatorGryWire = 0; //A10
-    elevatorRedWire	= 0; //A11		
+    greenSolenoid = 0; //A8
+		
 	lightAccessGrnt = 0; // turn off request to enter light. pb8			
 }				
 //****************************Driver Setup*******************************				
 void setup(void){							
 	//DISABLE RELAY POWER AND CONTROL SIGNALS ZERO			
-    elevatorPosBlock = 0; elevatorNegBlock = 0; 	 // cut common power		
-    elevatorGrnWire = 0; elevatorYlwWire = 0; elevatorGryWire = 0; elevatorRedWire	= 0;	// cut motor outputs
-    // GPIOA->AFR[0] |= 0x00100000; /* PA5 pin for tim2 */ 		
-    // GPIOA->MODER |= 0x00000800;  /* setup TIM2 */  				
-    // RCC->APB1ENR |= 1; /* enable TIM2 clock */  				
-    // TIM2->PSC = 10 - 1; /* divided by 10 */  				
-    // TIM2->ARR = 32000 - 1; /* divided by 26667 */  				
-    // TIM2->CNT = 0;  				
-    // TIM2->CCMR1 = 0x0060; /* PWM mode */  				
-    // TIM2->CCER = 1; /* enable PWM Ch1 */  				
-    // TIM2->CCR1 = 2080 - 1; /* pulse width 1/3 of the period */  				
-    // TIM2->CR1 = 1; /* enable timer */  
-
+    elevatorUp = 0; elevatorDown = 0; 	 // elevator motor OFF	
+    greenSolenoid = 0; // solenoid off (door locked)
     pwmMotorCount.period(0.020);		//period 20ms (50Hz)	
     pwmMotorCount.pulsewidth(0.0013);   //pulse width varies between 1.3, 1.5, and 1.7 ms 	
 }				
@@ -549,54 +466,4 @@ void multiarm(void){
     }
     pwmMotorCount.pulsewidth(0.0015); //TIM2->CCR1 = stopped;
     induct=false;
-}
-void shaftMotor(){
-    if((!manual && shaftBmSns) | (!manual && shaftPackPres)){ // 
-        shaftPackPres = 1;
-    }
-    else{
-        shaftPackPres = 0;
-        shaftCnt = 0;
-    }
-    if(manual){
-        if(shaftButUp){
-            shaftMotorUp = 1;
-            shaftMotorDown = 0;
-        }
-        else if(shaftButDown){
-            shaftMotorUp = 0;
-            shaftMotorDown = 1;
-        }
-        else{ //else no movement
-            shaftMotorUp = 0;
-            shaftMotorDown = 0;
-        }
-    }
-    else if(shaftPackPres){
-        //move up to the top, then move all the way down
-        shaftCnt++;
-        if(shaftCnt <= 180){  //180*5ms should be 9s (give 9s to get all the way up)
-            shaftMotorUp = 1;
-            shaftMotorDown = 0;
-            delayMs(5);
-            //copying on/off controls from moveup function (may or may not be necessary)
-            shaftMotorUp = 0;
-            shaftMotorDown = 0;
-            delayMs(1);
-        }
-        if(shaftCnt > 180 && shaftCnt <= 360){ //give another 9s to get back to the bottom
-            shaftMotorUp = 0;
-            shaftMotorDown = 1;
-            delayMs(5);
-            //copying on/off controls from movedown function (may or may not be necessary)
-            shaftMotorUp = 0;
-            shaftMotorDown = 0;
-            delayMs(1);
-        }
-        if(shaftCnt > 360){
-            shaftPackPres = 0;
-            shaftCnt = 0;
-        }
-
-    }
 }
