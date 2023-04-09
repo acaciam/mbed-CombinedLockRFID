@@ -45,7 +45,7 @@ MFRC522    RfChip   (SPI_MOSI, SPI_MISO, SPI_SCK, PG_2, MF_RESET);
 //redone to account for new solenoid and elevator motor that require less wires
 DigitalIn elevatorDoor(PE_0, PullUp);
 DigitalIn elevatorPkgBmSns(PE_3, PullUp);
-DigitalIn elevatorAuto (PE_4, PullUp); //elevatorSysEN --> ELevatorAuto || 1 == auto :: 0 == manual
+DigitalIn elevatorAuto (PE_4, PullUp); //elevatorSysEn --> elevatorAuto || 1 == auto :: 0 == manual
 PwmOut pwmMotorCount(PA_5);
 DigitalOut elevatorUp(PE_6); //elevatorPosBlock-->elevatorUp
 DigitalOut elevatorDown(PE_7); //elevatorNegBlock --> elevatorDown
@@ -102,7 +102,7 @@ void blinkLED(DigitalOut led);
 void flip(void);
 void unlock(void);
 void lock(void);
-void rfidCardPres(void);
+void rfidCtrl();
 void buttonUnlock(void);
 
 bool both=false;				
@@ -149,38 +149,8 @@ int main(void) {
             unlock();
             buttonUnlockReq = false;
         }
-            // Look for new cards
-        if ( RfChip.PICC_IsNewCardPresent())
-        {
-            blinkLED(LedBlue);
-        // ThisThread::sleep_for(500ms);
-        // continue;
-        // }
-        // if(cardPresent){
-        //     cardPresent = false;
-        //     // Select one of the cards
-            if ( RfChip.PICC_ReadCardSerial()) {
-                // Print Card UID
-                uint8_t ID[] = {0xe3, 0xdf, 0xa6, 0x2e};
-                if(RfChip.uid.uidByte[0] == ID[0] && RfChip.uid.uidByte[1] == ID[1] && RfChip.uid.uidByte[2] == ID[2] && RfChip.uid.uidByte[3] == ID[3]){
-                    printf("Card Match! \n");
-                    unlock();
-                    blinkLED(LedGreen);
-                }
-                else{
-                    lock();
-                    printf("Not Matching Card \n");
-                    blinkLED(LedRed);
-                }
-                printf("Card UID: ");
-                for (uint8_t i = 0; i < RfChip.uid.size; i++){
-                    printf(" %X", RfChip.uid.uidByte[i]);
-                }
-                printf("\n\n\r");
-            }
-
-        }
         
+        rfidCtrl();        
 
         if((!NFCReq) && (elevatorAuto)){ // "NFC request (low) and elevator system is automatic	(1)	
             lock();
@@ -190,7 +160,34 @@ int main(void) {
         elevatorCtrl();
 
     }  				
-} 				
+} 
+void rfidCtrl(){
+    // Look for new cards
+    if ( RfChip.PICC_IsNewCardPresent())
+    {
+        blinkLED(LedBlue);
+        if ( RfChip.PICC_ReadCardSerial()) {
+            // Print Card UID
+            uint8_t ID[] = {0xe3, 0xdf, 0xa6, 0x2e};
+            if(RfChip.uid.uidByte[0] == ID[0] && RfChip.uid.uidByte[1] == ID[1] && RfChip.uid.uidByte[2] == ID[2] && RfChip.uid.uidByte[3] == ID[3]){
+                printf("Card Match! \n");
+                unlock();
+                blinkLED(LedGreen);
+            }
+            else{
+                lock();
+                printf("Not Matching Card \n");
+                blinkLED(LedRed);
+            }
+            printf("Card UID: ");
+            for (uint8_t i = 0; i < RfChip.uid.size; i++){
+                printf(" %X", RfChip.uid.uidByte[i]);
+            }
+            printf("\n\n\r");
+        }
+
+    }
+}				
 void elevatorCtrl(){
     
     if(elevatorAuto && !elevatorPkgBmSns && !elevatorDoor){ // automatic mode and package present and elevator's door closed (all active LOW)
