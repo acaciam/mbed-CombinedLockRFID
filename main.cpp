@@ -114,7 +114,7 @@ bool armed=false;
 bool alarm=false;	
 bool induct=false;		
 
-bool cardPresent = false;
+bool rfidUnlockReq = false;
 bool buttonUnlockReq = false;
 
 int main(void) {	
@@ -140,25 +140,20 @@ int main(void) {
 				
 	//setup stepper motor			
 				
-    while(1) {				
-                    
+    while(1) {				      
         lightdisplay();				
         entrancedetection();
-//      multiarm();
-        if(buttonUnlockReq){
-            unlock();
-            buttonUnlockReq = false;
-        }
-        
+    //  multiarm();
+
         rfidCtrl();        
 
-        if((!NFCReq) && (elevatorAuto)){ // "NFC request (low) and elevator system is automatic	(1)	
-            lock();
+        if((buttonUnlockReq||rfidUnlockReq) && elevatorAuto){ // "NFC request (low) and elevator system is automatic	(1)	
             opendoor();
+            buttonUnlockReq = 0;
+            rfidUnlockReq = 0;
         }			
                         				        
         elevatorCtrl();
-
     }  				
 } 
 void rfidCtrl(){
@@ -171,11 +166,11 @@ void rfidCtrl(){
             uint8_t ID[] = {0xe3, 0xdf, 0xa6, 0x2e};
             if(RfChip.uid.uidByte[0] == ID[0] && RfChip.uid.uidByte[1] == ID[1] && RfChip.uid.uidByte[2] == ID[2] && RfChip.uid.uidByte[3] == ID[3]){
                 printf("Card Match! \n");
-                unlock();
+                rfidUnlockReq = true;
                 blinkLED(LedGreen);
             }
             else{
-                lock();
+                rfidUnlockReq = false;
                 printf("Not Matching Card \n");
                 blinkLED(LedRed);
             }
