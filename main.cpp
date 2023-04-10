@@ -85,7 +85,6 @@ DigitalIn mArmHome(PC_8);
 
 
 
-
 void setup(void);				
 void movedown(int c);				
 void moveup(int d);				
@@ -100,6 +99,8 @@ void blinkLED(DigitalOut led);
 void rfidCtrl(void);
 void buttonUnlock(void);
 void ethernetInit(void);
+void firebaseRead(void);
+void firebaseWrite(char[] command);
 
 bool both=false;				
 bool leaving= false;			
@@ -112,6 +113,13 @@ bool induct=false;
 
 bool rfidUnlockReq = false;
 bool buttonUnlockReq = false;
+bool buttonUnlockAllow = false;
+uint8_t ID[] = {0xe3, 0xdf, 0xa6, 0x2e};
+
+const char firebaseWriteVars[][] = {"alarm" "buttonREQ" "packageCycles"};
+const char firebaseReadVars[][] = {"id_card" "RFID" "buttonALLOW" "packageCycles"};
+int packageCycles = -1;
+int id_card =0 ;
 
 int main(void) {	
     int condition;// variable for present condition of door.	
@@ -135,6 +143,8 @@ int main(void) {
         }			
                         				        
         elevatorCtrl();
+        firebaseRead();
+        firebaseWrite();
     }  				
 } 
 void rfidCtrl(){
@@ -144,7 +154,6 @@ void rfidCtrl(){
         blinkLED(LedBlue);
         if ( RfChip.PICC_ReadCardSerial()) {
             // Print Card UID
-            uint8_t ID[] = {0xe3, 0xdf, 0xa6, 0x2e};
             if(RfChip.uid.uidByte[0] == ID[0] && RfChip.uid.uidByte[1] == ID[1] && RfChip.uid.uidByte[2] == ID[2] && RfChip.uid.uidByte[3] == ID[3]){
                 printf("Card Match! \n");
                 rfidUnlockReq = true;
@@ -374,7 +383,7 @@ void setup(void){
 }				
 
 void ethernetInit(){
-            // connect to the default connection access point
+    // connect to the default connection access point
     net = connect_to_default_network_interface();    
    
     // get NTP time and set RTC
@@ -455,4 +464,137 @@ void multiarm(void){
     }
     pwmMotorCount.pulsewidth(0.0015); //TIM2->CCR1 = stopped;
     induct=false;
+}
+
+
+void firebaseRead(void)
+{
+    for(i = begin(firebaseReadVars); i < end(firebaseReadVars); i++)
+    {
+        char* FirebaseReader;
+        switch(firebaseRead[i])
+        {
+
+            case "RFID"
+            {
+                if(id_card == 0);
+                { 
+                    strcat(FirebaseReader, FirebaseUrl);
+                    strcat(FirebaseReader, "id0.json?auth=");
+                    strcat(FirebaseReader, FirebaseAuth);
+                    ID[0] = (uint8_t)getFirebase((char*)FirebaseReader);
+                    FirebaseReader = "";
+                    strcat(FirebaseReader, FirebaseUrl);
+                    strcat(FirebaseReader, "id1.json?auth=");
+                    strcat(FirebaseReader, FirebaseAuth);
+                    ID[1] = (uint8_t)getFirebase((char*)FirebaseReader);
+                    FirebaseReader = "";
+                    strcat(FirebaseReader, FirebaseUrl);
+                    strcat(FirebaseReader, "id2.json?auth=");
+                    strcat(FirebaseReader, FirebaseAuth);
+                    ID[2] = (uint8_t)getFirebase((char*)FirebaseReader);
+                    FirebaseReader = "";
+                    strcat(FirebaseReader, FirebaseUrl);
+                    strcat(FirebaseReader, "id3.json?auth=");
+                    strcat(FirebaseReader, FirebaseAuth);
+                    ID[3] = (uint8_t)getFirebase((char*)FirebaseReader);
+                }
+                else
+                {
+                    strcat(FirebaseReader, FirebaseUrl);
+                    strcat(FirebaseReader, "alt_id0.json?auth=");
+                    strcat(FirebaseReader, FirebaseAuth);
+                    ID[0] = (uint8_t)getFirebase((char*)FirebaseReader);
+                    FirebaseReader = "";
+                    strcat(FirebaseReader, FirebaseUrl);
+                    strcat(FirebaseReader, "alt_id1.json?auth=");
+                    strcat(FirebaseReader, FirebaseAuth);
+                    ID[1] = (uint8_t)getFirebase((char*)FirebaseReader);
+                    FirebaseReader = "";
+                    strcat(FirebaseReader, FirebaseUrl);
+                    strcat(FirebaseReader, "alt_id2.json?auth=");
+                    strcat(FirebaseReader, FirebaseAuth);
+                    ID[2] = (uint8_t)getFirebase((char*)FirebaseReader);
+                    FirebaseReader = "";
+                    strcat(FirebaseReader, FirebaseUrl);
+                    strcat(FirebaseReader, "alt_id3.json?auth=");
+                    strcat(FirebaseReader, FirebaseAuth);
+                    ID[3] = (uint8_t)getFirebase((char*)FirebaseReader);
+                }
+            }
+
+            case "buttonALLOW"
+            {
+                strcat(FirebaseReader, FirebaseUrl);
+                strcat(FirebaseReader, "buttonAllow.json?auth=");
+                strcat(FirebaseReader, FirebaseAuth);
+                char* buttonAllow = getFirebase((char*)FirebaseReader);
+                if(buttonAllow == "true")
+                {
+                    buttonUnlockAllow = true;
+                }
+                else
+                {
+                    buttonUnlockAllow = false;
+                }
+            }
+
+            case "id_card"
+            {
+                strcat(FirebaseReader, FirebaseUrl);
+                strcat(FirebaseReader, "id_card.json?auth=");
+                strcat(FirebaseReader, FirebaseAuth);
+                id_card = (int)getFirebase((char*)FirebaseReader);
+            }
+
+            case "packageCycles"
+            {
+                strcat(FirebaseReader, FirebaseUrl);
+                strcat(FirebaseReader, "packageCycles.json?auth=");
+                strcat(FirebaseReader, FirebaseAuth);
+                char* cycles_read = getFirebase((char*)FirebaseReader);
+                packageCycles = stoi(str(cycles_read));
+            }
+        }
+    }
+}
+
+void firebaseWrite(char[] command)
+{
+    switch(command)
+    {
+        char* FirebaseReader;
+        case "alarm":
+        {
+            strcat(FirebaseReader, FirebaseUrl);
+            strcat(FirebaseReader, "alarm.json?auth=");
+            strcat(FirebaseReader, FirebaseAuth);
+
+            char* alarm_write = alarm?"true":"false";
+
+            putFirebase(FirebaseReader,alarm_write);
+        }
+        case "buttonREQ":
+        {
+            strcat(FirebaseReader, FirebaseUrl);
+            strcat(FirebaseReader, "buttonREQ.json?auth=");
+            strcat(FirebaseReader, FirebaseAuth);
+
+            char* button_write = buttonUnlockReq?"true":"false";
+
+            putFirebase(FirebaseReader,button_write);
+        }
+        case "packageCycles":
+        {
+            strcat(FirebaseReader, FirebaseUrl);
+            strcat(FirebaseReader, "packageCycles.json?auth=");
+            strcat(FirebaseReader, FirebaseAuth);
+
+            char* cycles_write;
+
+            itoa(packageCycles, cycles_write, 10);
+
+            putFirebase(FirebaseReader,button_write);
+        }
+    }
 }
