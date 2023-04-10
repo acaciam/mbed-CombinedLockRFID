@@ -17,9 +17,9 @@
 #include "MFRC522.h"
 #include "stm32f4xx.h"  				
 #include <stdbool.h>	
-// #include "Firebase.h"
-// #include "trng_api.h"
-// #include "NTPclient.h"
+#include "Firebase.h"
+#include "trng_api.h"
+#include "NTPclient.h"
 
 // Nucleo Pin for MFRC522 reset (pick another D pin if you need D8)
 #define MF_RESET    D8
@@ -33,9 +33,7 @@
 DigitalOut LedGreen(LED1);  //PB0
 DigitalOut LedBlue(LED2);   //PB7
 DigitalOut LedRed(LED3);    //PB14
-DigitalOut Lock(PG_9);
 InterruptIn button(PD_7);
-InterruptIn rfidInt(PG_14);
 
 BufferedSerial     pc(UART_TX, UART_RX, 9600);
 MFRC522    RfChip   (SPI_MOSI, SPI_MISO, SPI_SCK, PG_2, MF_RESET);
@@ -99,11 +97,9 @@ void opendoor(void);
 void multiarm(void);		
 
 void blinkLED(DigitalOut led);
-void flip(void);
-void unlock(void);
-void lock(void);
-void rfidCtrl();
+void rfidCtrl(void);
 void buttonUnlock(void);
+void ethernetInit(void);
 
 bool both=false;				
 bool leaving= false;			
@@ -118,25 +114,10 @@ bool rfidUnlockReq = false;
 bool buttonUnlockReq = false;
 
 int main(void) {	
-    
-    
-  // Init. RC522 Chip
-    RfChip.PCD_Init();
-    pc.set_format(
-        /* bits */ 8,
-        /* parity */ BufferedSerial::None,
-        /* stop bit */ 1
-    );
-    TIM2_Config();
-    lock();
-
+    int condition;// variable for present condition of door.	
 	setup();	
 
-    button.rise(&unlock);  
-		
-	int condition;// variable for present condition of door.			
-				
-				
+    button.rise(&buttonUnlock);  
 				
 	//setup stepper motor			
 				
@@ -147,7 +128,7 @@ int main(void) {
 
         rfidCtrl();        
 
-        if((buttonUnlockReq||rfidUnlockReq) && elevatorAuto){ // "NFC request (low) and elevator system is automatic	(1)	
+        if((buttonUnlockReq||rfidUnlockReq) && elevatorAuto){ // "valid unlock Req from button OR rfid, AND elevator system is automatic	(1)	
             opendoor();
             buttonUnlockReq = 0;
             rfidUnlockReq = 0;
@@ -378,9 +359,40 @@ void setup(void){
     elevatorUp = 0; elevatorDown = 0; 	 // elevator motor OFF	
     greenSolenoid = 0; // solenoid off (door locked)
     pwmMotorCount.period(0.020);		//period 20ms (50Hz)	
-    pwmMotorCount.pulsewidth(0.0013);   //pulse width varies between 1.3, 1.5, and 1.7 ms 	
+    pwmMotorCount.pulsewidth(0.0013);   //pulse width varies between 1.3, 1.5, and 1.7 ms 
+
+    // Init. RC522 Chip
+    RfChip.PCD_Init();
+    pc.set_format(
+        /* bits */ 8,
+        /* parity */ BufferedSerial::None,
+        /* stop bit */ 1
+    );
+    TIM2_Config();
+
+    ethernetInit();
 }				
-				
+
+void ethernetInit(){
+            // connect to the default connection access point
+    net = connect_to_default_network_interface();    
+   
+    // get NTP time and set RTC
+    NTPclient           ntp(*net);
+    printf("\nConnecting to NTP server..\n");    
+    //  NTP server address, timezone offset in seconds +/-, enable DST, set RTC 
+    if(ntp.getNTP("0.pool.ntp.org",0,1,1)){
+        time_t seconds = time(NULL);
+        printf("System time set by NTP: %s\n\n", ctime(&seconds));
+    }
+    else{printf("No NTP could not set RTC !!\n\n");}  
+    
+    printf("\nConnecting TLS re-use socket...!\n\n");
+    TLSSocket* socket = new TLSSocket();
+    startTLSreusesocket((char*)FirebaseID);
+     
+    printf("\nReady...!\n\n");	
+}				
 
 void blinkLED(DigitalOut led){
     led = 1;
@@ -390,21 +402,6 @@ void blinkLED(DigitalOut led){
 void buttonUnlock(void){
     buttonUnlockReq = true;
 }
-void unlock(void){
-    Lock = 0;
- //   delayMs(1000);
-   // Lock = 1;
-}
-void lock(void){
-    Lock = 1;
-    ThisThread::sleep_for(50ms);
-}
-
-void rfidCardPres(void){
-    cardPresent = true;
-    blinkLED(LedBlue);
-}
-
 
 void delayMs(int n){
 	while(n > 0){
