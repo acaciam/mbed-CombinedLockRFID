@@ -482,44 +482,44 @@ void firebaseRead(void)
                     strcat(FirebaseReader, FirebaseUrl);
                     strcat(FirebaseReader, "id0.json?auth=");
                     strcat(FirebaseReader, FirebaseAuth);
-                    ID[0] = (uint8_t)getFirebase((char*)FirebaseReader);
+                    ID[0] = (uint8_t)stoi(str(getFirebase((char*)FirebaseReader)));
                     FirebaseReader = "";
                     strcat(FirebaseReader, FirebaseUrl);
                     strcat(FirebaseReader, "id1.json?auth=");
                     strcat(FirebaseReader, FirebaseAuth);
-                    ID[1] = (uint8_t)getFirebase((char*)FirebaseReader);
+                    ID[1] = (uint8_t)stoi(str(getFirebase((char*)FirebaseReader)));
                     FirebaseReader = "";
                     strcat(FirebaseReader, FirebaseUrl);
                     strcat(FirebaseReader, "id2.json?auth=");
                     strcat(FirebaseReader, FirebaseAuth);
-                    ID[2] = (uint8_t)getFirebase((char*)FirebaseReader);
+                    ID[2] = (uint8_t)stoi(str(getFirebase((char*)FirebaseReader)));
                     FirebaseReader = "";
                     strcat(FirebaseReader, FirebaseUrl);
                     strcat(FirebaseReader, "id3.json?auth=");
                     strcat(FirebaseReader, FirebaseAuth);
-                    ID[3] = (uint8_t)getFirebase((char*)FirebaseReader);
+                    ID[3] = (uint8_t)stoi(str(getFirebase((char*)FirebaseReader)));
                 }
                 else
                 {
                     strcat(FirebaseReader, FirebaseUrl);
                     strcat(FirebaseReader, "alt_id0.json?auth=");
                     strcat(FirebaseReader, FirebaseAuth);
-                    ID[0] = (uint8_t)getFirebase((char*)FirebaseReader);
+                    ID[0] = (uint8_t)stoi(str(getFirebase((char*)FirebaseReader)));
                     FirebaseReader = "";
                     strcat(FirebaseReader, FirebaseUrl);
                     strcat(FirebaseReader, "alt_id1.json?auth=");
                     strcat(FirebaseReader, FirebaseAuth);
-                    ID[1] = (uint8_t)getFirebase((char*)FirebaseReader);
+                    ID[1] = (uint8_t)stoi(str(getFirebase((char*)FirebaseReader)));
                     FirebaseReader = "";
                     strcat(FirebaseReader, FirebaseUrl);
                     strcat(FirebaseReader, "alt_id2.json?auth=");
                     strcat(FirebaseReader, FirebaseAuth);
-                    ID[2] = (uint8_t)getFirebase((char*)FirebaseReader);
+                    ID[2] = (uint8_t)stoi(str(getFirebase((char*)FirebaseReader)));
                     FirebaseReader = "";
                     strcat(FirebaseReader, FirebaseUrl);
                     strcat(FirebaseReader, "alt_id3.json?auth=");
                     strcat(FirebaseReader, FirebaseAuth);
-                    ID[3] = (uint8_t)getFirebase((char*)FirebaseReader);
+                    ID[3] = (uint8_t)stoi(str(getFirebase((char*)FirebaseReader)));
                 }
             }
 
@@ -544,7 +544,7 @@ void firebaseRead(void)
                 strcat(FirebaseReader, FirebaseUrl);
                 strcat(FirebaseReader, "id_card.json?auth=");
                 strcat(FirebaseReader, FirebaseAuth);
-                id_card = (int)getFirebase((char*)FirebaseReader);
+                id_card = stoi(str(getFirebase((char*)FirebaseReader)));
             }
 
             case "packageCycles"
@@ -552,8 +552,7 @@ void firebaseRead(void)
                 strcat(FirebaseReader, FirebaseUrl);
                 strcat(FirebaseReader, "packageCycles.json?auth=");
                 strcat(FirebaseReader, FirebaseAuth);
-                char* cycles_read = getFirebase((char*)FirebaseReader);
-                packageCycles = stoi(str(cycles_read));
+                packageCycles = stoi(str(getFirebase((char*)FirebaseReader)));
             }
         }
     }
@@ -594,7 +593,7 @@ void firebaseWrite(char[] command)
 
             itoa(packageCycles, cycles_write, 10);
 
-            putFirebase(FirebaseReader,button_write);
+            putFirebase(FirebaseReader,cycles_write);
         }
     }
 }
