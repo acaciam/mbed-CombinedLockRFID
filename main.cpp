@@ -22,85 +22,94 @@
 #include "NTPclient.h"
 
 // Nucleo Pin for MFRC522 reset (pick another D pin if you need D8)
-#define MF_RESET    D8
-#define SPI_MOSI PB_5
-#define SPI_MISO PB_4
-#define SPI_SCK PB_3
 
-#define UART_RX     PA_3
-#define UART_TX     PA_2
+
+#define UART_RX     PC_11
+#define UART_TX     PC_10
+BufferedSerial     pc(UART_TX, UART_RX, 9600);
 
 DigitalOut LedGreen(LED1);  //PB0
 DigitalOut LedBlue(LED2);   //PB7
 DigitalOut LedRed(LED3);    //PB14
-InterruptIn button(PD_7);
 
-BufferedSerial     pc(UART_TX, UART_RX, 9600);
-MFRC522    RfChip   (SPI_MOSI, SPI_MISO, SPI_SCK, PG_2, MF_RESET);
+//Internal Harness
+DigitalOut elevatorUp(PE_4); //elevatorPosBlock-->elevatorUp
+DigitalOut elevatorDown(PE_5); //elevatorNegBlock --> elevatorDown
+DigitalOut greenSolenoid(PE_6); //elevatorGrnWire --> greenSolenoid
 
 
-//PA assigns --> used PE instead (Kept PWM as PA_5) 
-//redone to account for new solenoid and elevator motor that require less wires
-DigitalIn elevatorDoor(PE_0, PullUp);
-DigitalIn elevatorPkgBmSns(PE_3, PullUp);
-DigitalIn elevatorAuto (PE_4, PullUp); //elevatorSysEn --> elevatorAuto || 1 == auto :: 0 == manual
-PwmOut pwmMotorCount(PA_5);
-DigitalOut elevatorUp(PE_6); //elevatorPosBlock-->elevatorUp
-DigitalOut elevatorDown(PE_7); //elevatorNegBlock --> elevatorDown
-DigitalOut greenSolenoid(PE_8); //elevatorGrnWire --> greenSolenoid
-DigitalIn elevatorTopSwitch(PE_12, PullUp);
-DigitalIn elevatorBotSwitch(PE_15, PullUp);
-
+//Control Box Inputs
+DigitalIn elevatorManual (PF_7, PullUp); //elevatorSysEn --> elevatorManual || 1 == auto :: 0 == manual
+DigitalIn mArmManual (PF_9, PullUp); // mArmManual ||  inputs : 1 == auto :: 0 == manual (active LOW)
+InterruptIn button(PG_0);
 DigitalIn motorUpBut(PD_0);
 DigitalIn motorDownBut(PD_1);
+
+//Control Box Light Outputs
+DigitalOut lightDrSysEn(PB_6);
+DigitalOut armedLight(PC_3);
+DigitalOut lightAccessGrnt(PA_3);
+DigitalOut lightOccupantIn(PD_7);
+DigitalOut lightOccupantOut(PD_6);
+DigitalOut faultLightAlarm(PC_0);
+DigitalOut faultLightDrOpen(PD_5);
+
+//RFID Harness
+#define MF_RESET    D8
+#define SPI_MOSI PB_5
+#define SPI_MISO PB_4
+#define SPI_SCK PB_3
+MFRC522    RfChip   (SPI_MOSI, SPI_MISO, SPI_SCK, PA_4, MF_RESET);
+
+//Front Door Harness
+DigitalIn inBmSns(PF_4, PullUp); 
+DigitalIn outBmSns(PC_2, PullUp);
+DigitalIn drClsdSwitch(PB_6, PullUp);
+DigitalIn interiorMotion(PB_1);
+
+//Elevator Harness
+DigitalIn elevatorTopSwitch(PE_12, PullUp);
+DigitalIn elevatorBotSwitch(PE_15, PullUp);
+DigitalIn elevatorDoor(PE_0, PullUp);
+DigitalIn elevatorPkgBmSns(PE_3, PullUp);
+
+//Multi Arm Machine Harness
+PwmOut pwmMotorCount(PA_5);
+DigitalIn mArmOutMotionDetector(PA_6, PullUp);
+DigitalIn mArmCasePres(PD_14, PullUp); //package switch
+DigitalIn mArmBmSwitch(PD_15, PullUp); //arm beam switch
+
+//------------------------------------------------
+
+//setup/base functions
+void setup(void);	
+void ethernetInit(void);	
+void delayMs(int n);
+void TIM2_Config(void);		
+void blinkLED(DigitalOut led);
+			
+//main control functions			
+void lightdisplay(void);				
+void entrancedetection(void);	
+void rfidCtrl(void);
 void elevatorCtrl(void);
+void multiarmCtrl(void);
+
+//function calls from main controls
+void multiarmAuto(void);		
+void movedown(int c);				
+void moveup(int d);	
+void opendoor(void);
+void buttonUnlock(void);
+
+//controls for automatic elevator
 bool down = false;
 bool up = false;
 int elevatorCnt = 0;
 int traveldown = 800;// number of pulses for stepper motor travel, 200 per revolution.			
 int travelup = 800;	
 
-
-//PB assigns -> switched around PB assignments to fit f429 board
-DigitalIn outBmSns(PB_1, PullUp);
-DigitalIn inBmSns(PB_2, PullUp);
-DigitalOut lightDrSysEn(PB_6);
-DigitalOut lightAccessGrnt(PB_8);
-DigitalOut lightOccupantIn(PB_9);
-DigitalOut lightOccupantOut(PB_10);
-#define pb11 PB_11
-//REPLACE PB3,4,5 -> PG0,1,3
-DigitalIn pg0(PG_0);
-DigitalIn drClsdSwitch(PG_1, PullUp);
-DigitalIn NFCReq(PG_3, PullUp);
-
-//PC assigns -> switched around pin assignments on PC to fit with our new board
-DigitalOut faultLightAlarm(PC_0);
-DigitalOut faultLightDrOpen(PC_2);
-DigitalOut armedLight(PC_3);
-DigitalIn interiorMotion(PC_6);
-DigitalIn mArmCasePres(PC_7);
-DigitalIn mArmHome(PC_8);
-#define mArmOutMotionDetector PC_9
-
-
-
-
-void setup(void);				
-void movedown(int c);				
-void moveup(int d);				
-void delayMs(int n);
-void TIM2_Config(void);				
-void lightdisplay(void);				
-void entrancedetection(void);				
-void opendoor(void);
-void multiarm(void);		
-
-void blinkLED(DigitalOut led);
-void rfidCtrl(void);
-void buttonUnlock(void);
-void ethernetInit(void);
-
+//bools for lights
 bool both=false;				
 bool leaving= false;			
 bool entering=false;			
@@ -110,31 +119,33 @@ bool armed=false;
 bool alarm=false;	
 bool induct=false;		
 
+//bools for unlock request -> send/receive from database
 bool rfidUnlockReq = false;
 bool buttonUnlockReq = false;
+
 
 int main(void) {	
     int condition;// variable for present condition of door.	
 	setup();	
 
-    button.rise(&buttonUnlock);  
+    button.fall(&buttonUnlock);  
 				
 	//setup stepper motor			
 				
     while(1) {				      
         lightdisplay();				
         entrancedetection();
-    //  multiarm();
+    //  multiarmCtrl();
 
         rfidCtrl();        
 
-        if((buttonUnlockReq||rfidUnlockReq) && elevatorAuto){ // "valid unlock Req from button OR rfid, AND elevator system is automatic	(1)	
+        if((buttonUnlockReq||rfidUnlockReq) && !elevatorManual && !mArmManual){ // "valid unlock Req from button OR rfid, AND elevator system AND multiArm are automatic	(1)	
             opendoor();
             buttonUnlockReq = 0;
             rfidUnlockReq = 0;
         }			
                         				        
-        elevatorCtrl();
+        //elevatorCtrl();
     }  				
 } 
 void rfidCtrl(){
@@ -166,17 +177,17 @@ void rfidCtrl(){
 }				
 void elevatorCtrl(){
     
-    if(elevatorAuto && !elevatorPkgBmSns && !elevatorDoor){ // automatic mode and package present and elevator's door closed (all active LOW)
+    if(!elevatorManual && !elevatorPkgBmSns && !elevatorDoor){ // automatic mode (1) and package present(0) and elevator's door closed(0)
         delayMs(5000);
         movedown(traveldown);
         delayMs(5000);
         moveup(travelup);
 
     }
-    if(!elevatorAuto){ //if elevator in Manual mode, buttons control movement
+    if(elevatorManual){ //if elevator in Manual mode, buttons control movement
         if(motorUpBut){
             if(down){ //checks to stop motor between direction VERY IMPORTANT!!
-                delayMs(500);
+                delayMs(1000);
                 down = false;
             }
             elevatorUp = 1;
@@ -186,7 +197,7 @@ void elevatorCtrl(){
         }
         else if(motorDownBut){
             if(up){ //checks to stop motor between directions VERY IMPORTANT!!
-                delayMs(500);
+                delayMs(1000);
                 up = false;
             }
             elevatorUp = 0;
@@ -199,15 +210,31 @@ void elevatorCtrl(){
             elevatorDown = 0;
             delayMs(1);
             elevatorCnt++;
-            if(elevatorCnt > 500){ //if motor hasn't been active in at lease 500ms- reset up/down booleans (no longer causes delay before manual up/down) 
+            if(elevatorCnt > 1000){ //if motor hasn't been active in at lease 500ms- reset up/down booleans (no longer causes delay before manual up/down) 
                 up = false;
                 down = false;
-                elevatorCnt = 500;
+                elevatorCnt = 1000;
             }
         }
     }
 }
-				
+
+void multiarmCtrl(){
+    if(!mArmManual){ //if system is automatic call function for automatic control
+        multiarmAuto();
+    }
+    else if(mArmManual){
+        if(motorUpBut){ //move forward (CW)
+            pwmMotorCount.pulsewidth(0.0013);   //TIM2->CCR1 = cw;
+        }
+        if(motorDownBut){ //move backwards (CCW)
+            pwmMotorCount.pulsewidth(0.0017);   //TIM2->CCR1 = ccw;
+        } 
+        else{ //neither or both buttons pressed > stop motor
+            pwmMotorCount.pulsewidth(0.0015);   //TIM2->CCR1 = stopped;
+        }
+    }
+}				
 							
 void movedown(int c){		
     int i = 0;		
@@ -257,7 +284,7 @@ void moveup(int c){
     elevatorDown = 0; //A7				
 }				
 void lightdisplay(void){						
-	if(lightDrSysEn && (!elevatorAuto)){		//LIGHTS UP WHEN SYS IS MANUAL	
+	if(lightDrSysEn && (elevatorManual)){		//LIGHTS UP WHEN SYS IS MANUAL	
 	    lightDrSysEn = 0;
     } 			
 //	GPIOB->ODR |= (doormode << 3);// activate led for door mode			
@@ -310,8 +337,8 @@ void entrancedetection(void){
     }
 			
 	if((entering) && (inBmSns && outBmSns)){//inside			
-	inside=true;
-    outside = false;			
+	    inside=true;
+        outside = false;			
 		lightOccupantOut = 0;		
 		lightOccupantIn = 1;		
     	leaving=false;			
@@ -370,7 +397,7 @@ void setup(void){
     );
     TIM2_Config();
 
-    ethernetInit();
+ //   ethernetInit();
 }				
 
 void ethernetInit(){
@@ -421,7 +448,7 @@ void TIM2_Config(){
 
 
 
-void multiarm(void){
+void multiarmAuto(void){
    // int cw = 2080-1; (1.3ms)
   //  int stopped = 2400-1; (1.5ms)
    // int ccw = 2720-1; (1.7ms)
@@ -444,8 +471,8 @@ void multiarm(void){
         }
     }
     
-    if((mArmCasePres&&mArmHome)&& induct ){//both beams cleared, induction started:
-        while((mArmHome) && (c<100)){
+    if((mArmCasePres&&mArmBmSwitch)&& induct ){//both beams cleared, induction started:
+        while((mArmBmSwitch) && (c<100)){
             pwmMotorCount.pulsewidth(0.0013); //TIM2->CCR1 = cw;
             delayMs(100);
             pwmMotorCount.pulsewidth(0.0015); //TIM2->CCR1 = stopped;

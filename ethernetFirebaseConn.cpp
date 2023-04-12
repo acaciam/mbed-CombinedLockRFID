@@ -1,7 +1,7 @@
 #include "mbed.h"
-#include "Firebase.h"
-#include "trng_api.h"
-#include "NTPclient.h"
+//#include "Firebase.h"
+//#include "trng_api.h"
+//#include "NTPclient.h"
 
 DigitalOut led1(LED1,0);
 DigitalOut led2(LED1,0);
