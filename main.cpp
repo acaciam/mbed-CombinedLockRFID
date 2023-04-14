@@ -24,8 +24,8 @@
 // Nucleo Pin for MFRC522 reset (pick another D pin if you need D8)
 
 
-#define UART_RX     PC_11
-#define UART_TX     PC_10
+#define UART_RX     PD_2
+#define UART_TX     PC_12
 BufferedSerial     pc(UART_TX, UART_RX, 9600);
 
 DigitalOut LedGreen(LED1);  //PB0
@@ -115,22 +115,22 @@ bool leaving= false;
 bool entering=false;			
 bool inside=false;			
 bool outside=false;			
-bool armed=false;			
-bool alarm=false;	
-bool induct=false;		
+bool armed=false;				
+bool induct=false;	
+bool mArmMoving = false;
 
-//bools for unlock request -> send/receive from database
+//bools to send/receive from database
 bool rfidUnlockReq = false;
 bool buttonUnlockReq = false;
+bool alarmEn = true;
+bool alarm=false;	
 
 
 int main(void) {	
     int condition;// variable for present condition of door.	
-	setup();	
 
-    button.fall(&buttonUnlock);  
-				
-	//setup stepper motor			
+	setup();	
+    button.fall(&buttonUnlock);  		
 				
     while(1) {				      
         lightdisplay();				
@@ -139,7 +139,8 @@ int main(void) {
 
         rfidCtrl();        
 
-        if((buttonUnlockReq||rfidUnlockReq) && !elevatorManual && !mArmManual){ // "valid unlock Req from button OR rfid, AND elevator system AND multiArm are automatic	(1)	
+//        if((buttonUnlockReq||rfidUnlockReq) && !elevatorManual && !mArmManual){ // "valid unlock Req from button OR rfid, AND elevator system AND multiArm are automatic	(1)	
+        if(buttonUnlockReq||rfidUnlockReq){
             opendoor();
             buttonUnlockReq = 0;
             rfidUnlockReq = 0;
@@ -226,12 +227,15 @@ void multiarmCtrl(){
     else if(mArmManual){
         if(motorUpBut){ //move forward (CW)
             pwmMotorCount.pulsewidth(0.0013);   //TIM2->CCR1 = cw;
+            mArmMoving = true;
         }
         if(motorDownBut){ //move backwards (CCW)
             pwmMotorCount.pulsewidth(0.0017);   //TIM2->CCR1 = ccw;
+            mArmMoving = true;
         } 
         else{ //neither or both buttons pressed > stop motor
             pwmMotorCount.pulsewidth(0.0015);   //TIM2->CCR1 = stopped;
+            mArmMoving = false;
         }
     }
 }				
@@ -283,29 +287,44 @@ void moveup(int c){
     elevatorUp = 0; //A6
     elevatorDown = 0; //A7				
 }				
-void lightdisplay(void){						
+void lightdisplay(void){	
+    if(armed && (!interiorMotion && inside)){
+        if(alarmEn){
+            alarm = 1;
+        }
+        else{
+            alarm = 0;
+        }
+    }
+    //FIXME remove when the app is set up so only app change change enabled status
+    if(!alarmEn && (armed && (outside))){ //reset the alarm enable when the person leaves
+        alarmEn = true;
+    }				
 	if(lightDrSysEn && (elevatorManual)){		//LIGHTS UP WHEN SYS IS MANUAL	
 	    lightDrSysEn = 0;
-    } 			
-//	GPIOB->ODR |= (doormode << 3);// activate led for door mode			
- //   inBmSns = doormode;
+    } 					
 	// Door left open fault: Delivery person walked away leaving the door open			
 	if(outside && drClsdSwitch){ //person left and door left open: Door open fault		
         faultLightDrOpen = 1; 				
 	}else{
         faultLightDrOpen = 0; 
     }		
-	if(armed && (!interiorMotion && inside)){ //armed, no motion, entrant left: Door fault			
+	if(alarm){ //armed, no motion, entrant left: Door fault			
         faultLightAlarm = 1;				
         delayMs(1000);				
 		faultLightAlarm = 0; 		
-	}			
-	if(armed){			
-		armedLight = 1;
+	}	
+    else{
+        faultLightAlarm = 0; 
     }		
-	if(!(armed)){			
-		armedLight = 0;
-    }		
+    if(elevatorUp || elevatorDown || mArmMoving){
+        armedLight = 1;
+    }
+    else{
+        armedLight = 0;
+    }
+       
+    		
 				
 }				
 				
@@ -386,7 +405,7 @@ void setup(void){
     elevatorUp = 0; elevatorDown = 0; 	 // elevator motor OFF	
     greenSolenoid = 0; // solenoid off (door locked)
     pwmMotorCount.period(0.020);		//period 20ms (50Hz)	
-    pwmMotorCount.pulsewidth(0.0013);   //pulse width varies between 1.3, 1.5, and 1.7 ms 
+    pwmMotorCount.pulsewidth(0.0015);   //pulse width varies between 1.3, 1.5, and 1.7 ms 
 
     // Init. RC522 Chip
     RfChip.PCD_Init();
@@ -457,29 +476,37 @@ void multiarmAuto(void){
     if(!(mArmCasePres)){//motion sensor quiet, package present
         induct=true;
         pwmMotorCount.pulsewidth(0.0013);   //TIM2->CCR1 = cw;
+        mArmMoving = true;
         delayMs(5000);//engage motor for 2.5 seconds
         pwmMotorCount.pulsewidth(0.0015); //TIM2->CCR1 = stopped;
+        mArmMoving = false;
     }
     //jamming suspected.
     for(int i=0; i<2;i++){
         if(!(mArmCasePres)){
             pwmMotorCount.pulsewidth(0.0017); //TIM2->CCR1 = ccw;
+            mArmMoving = true;
             delayMs(2500);
             pwmMotorCount.pulsewidth(0.0013); //TIM2->CCR1 = cw;
+            mArmMoving = true;
             delayMs(5000);//engage motor for 2.5 seconds
             pwmMotorCount.pulsewidth(0.0015); //TIM2->CCR1 = stopped;
+            mArmMoving = false;
         }
     }
     
     if((mArmCasePres&&mArmBmSwitch)&& induct ){//both beams cleared, induction started:
         while((mArmBmSwitch) && (c<100)){
             pwmMotorCount.pulsewidth(0.0013); //TIM2->CCR1 = cw;
+            mArmMoving = true;
             delayMs(100);
             pwmMotorCount.pulsewidth(0.0015); //TIM2->CCR1 = stopped;
+            mArmMoving = false;
             c=c+1;
         }
         c=0;
     }
     pwmMotorCount.pulsewidth(0.0015); //TIM2->CCR1 = stopped;
+    mArmMoving = false;
     induct=false;
 }
