@@ -68,10 +68,10 @@ DigitalIn drClsdSwitch(PB_6, PullUp);
 DigitalIn interiorMotion(PB_1);
 
 //Elevator Harness
-DigitalIn elevatorTopSwitch(PE_12, PullUp);
+DigitalIn elevatorTopSwitch(PE_14, PullUp);
 DigitalIn elevatorBotSwitch(PE_15, PullUp);
-DigitalIn elevatorDoor(PE_0, PullUp);
-DigitalIn elevatorPkgBmSns(PE_3, PullUp);
+DigitalIn elevatorDoor(PB_10, PullUp);
+DigitalIn elevatorPkgBmSns(PB_11, PullUp);
 
 //Multi Arm Machine Harness
 PwmOut pwmMotorCount(PA_5);
@@ -165,18 +165,18 @@ int main(void) {
     while(1) {				      
         lightdisplay();				
         entrancedetection();
-    //  multiarmCtrl();
+      multiarmCtrl();
 
         rfidCtrl();        
 
-//        if((buttonUnlockReq||rfidUnlockReq) && !elevatorManual && !mArmManual){ // "valid unlock Req from button OR rfid, AND elevator system AND multiArm are automatic	(1)	
+//        if((buttonUnlockReq||rfidUnlockReq) && elevatorManual && mArmManual){ // "valid unlock Req from button OR rfid, AND elevator system AND multiArm are automatic	(1)	
         if(buttonUnlockReq||rfidUnlockReq){
             opendoor();
             buttonUnlockReq = 0;
             rfidUnlockReq = 0;
         }			
                         				        
-        //elevatorCtrl();
+        elevatorCtrl();
     }  				
 } 
 void rfidCtrl(){
@@ -207,16 +207,18 @@ void rfidCtrl(){
 }				
 void elevatorCtrl(){
     
-    if(!elevatorManual && !elevatorPkgBmSns && !elevatorDoor){ // automatic mode (1) and package present(0) and elevator's door closed(0)
-        delayMs(5000);
+    if(elevatorManual && !elevatorPkgBmSns && !elevatorDoor){ // automatic mode (1) and package present(0) and elevator's door closed(0)
+        delayMs(50000); //approx 9s 
         movedown(traveldown);
-        delayMs(5000);
+        delayMs(50000);
         moveup(travelup);
 
     }
-    if(elevatorManual){ //if elevator in Manual mode, buttons control movement
-        if(motorUpBut){
+    if(!elevatorManual){ //if elevator in Manual mode, buttons control movement
+        if(!motorUpBut && motorDownBut){
             if(down){ //checks to stop motor between direction VERY IMPORTANT!!
+                elevatorUp = 0;
+                elevatorDown = 0;
                 delayMs(1000);
                 down = false;
             }
@@ -225,8 +227,10 @@ void elevatorCtrl(){
             up = true;
             elevatorCnt = 0;
         }
-        else if(motorDownBut){
+        else if(!motorDownBut && motorUpBut){
             if(up){ //checks to stop motor between directions VERY IMPORTANT!!
+                elevatorUp = 0;
+                elevatorDown = 0;            
                 delayMs(1000);
                 up = false;
             }
@@ -250,10 +254,10 @@ void elevatorCtrl(){
 }
 
 void multiarmCtrl(){
-    if(!mArmManual){ //if system is automatic call function for automatic control
+    if(mArmManual){ //if system is automatic call function for automatic control
         multiarmAuto();
     }
-    else if(mArmManual){
+    else if(!mArmManual){
         if(motorUpBut){ //move forward (CW)
             pwmMotorCount.pulsewidth(0.0013);   //TIM2->CCR1 = cw;
             mArmMoving = true;
@@ -274,19 +278,16 @@ void movedown(int c){
     //ensure solenoid is off before proceeding
     greenSolenoid = 0;
 
-    //motor off delay for 1000ms (ensure no fuse blown)
-    elevatorUp = 0; //A6
-    elevatorDown = 0; //A7
-	delayMs(1000);		
+		
 				
 	//c=c/2; // count is for each coil.			
 	for(i = 0; i<= c; i++){		
-        if(elevatorBotSwitch){ //break from the for loops section once the elevator has reached the bottom
+        if(!elevatorBotSwitch){ //break from the for loops section once the elevator has reached the bottom
             break;
         }	
         elevatorUp = 0;
         elevatorDown = 1;
-        delayMs(10);		
+        delayMs(1000);		
 	}	
     //motor off
     elevatorUp = 0; //A6
@@ -305,12 +306,12 @@ void moveup(int c){
 				
 	//c=c/2; // count is for each coil.			
 	for(i = 0; i<= c; i++){		//at least 800 cycle * 10ms OR stop when motor has reached the top
-        if(elevatorTopSwitch){ //break from the for loops section once the elevator has reached the Top
+        if(!elevatorTopSwitch){ //break from the for loops section once the elevator has reached the Top
             break;
         }				
         elevatorUp = 1; //A6
         elevatorDown = 0; //A7
-	    delayMs(10);							
+	    delayMs(1000);							
 	}			
     // motor off
     elevatorUp = 0; //A6
@@ -330,7 +331,7 @@ void lightdisplay(void){
     if(!alarmEn && (armed && (outside))){ //reset the alarm enable when the person leaves
         alarmEn = true;
     }				
-	if(lightDrSysEn && (elevatorManual)){		//LIGHTS UP WHEN SYS IS MANUAL	
+	if(lightDrSysEn && (!elevatorManual)){		//LIGHTS UP WHEN SYS IS MANUAL	
 	    lightDrSysEn = 0;
     } 					
 	// Door left open fault: Delivery person walked away leaving the door open			
