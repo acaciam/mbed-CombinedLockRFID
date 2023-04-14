@@ -20,7 +20,7 @@
 #include "Firebase.h"
 #include "trng_api.h"
 #include "NTPclient.h"
-
+#include <string>
 // Nucleo Pin for MFRC522 reset (pick another D pin if you need D8)
 
 
@@ -76,8 +76,8 @@ DigitalIn elevatorPkgBmSns(PE_3, PullUp);
 //Multi Arm Machine Harness
 PwmOut pwmMotorCount(PA_5);
 DigitalIn mArmOutMotionDetector(PA_6, PullUp);
-DigitalIn mArmCasePres(PD_14, PullUp); //package switch
-DigitalIn mArmBmSwitch(PD_15, PullUp); //arm beam switch
+DigitalIn mArmCasePres(PD_14, PullUp); //package switch (package has arrived)
+DigitalIn mArmBmSwitch(PD_15, PullUp); //arm beam sensor (package has been inducted)
 
 //------------------------------------------------
 
@@ -104,8 +104,8 @@ void buttonUnlock(void);
 
 
 //Firebase function calls
-void firebaseRead(void);
-void firebaseWrite(char[] command);
+//void firebaseRead(void);
+//void firebaseWrite(char[] command);
 
 
 //controls for automatic elevator
@@ -115,21 +115,23 @@ int elevatorCnt = 0;
 int traveldown = 800;// number of pulses for stepper motor travel, 200 per revolution.			
 int travelup = 800;	
 
-//bools for lights
+//bools for tracking
 bool both=false;				
 bool leaving= false;			
-bool entering=false;			
-bool inside=false;			
-bool outside=false;			
+bool entering=false;						
 bool armed=false;				
 bool induct=false;	
+bool inside=false;			
+bool outside=false;
 bool mArmMoving = false;
-
-//bools to send/receive from database
 bool rfidUnlockReq = false;
+
+//bools to write to firebase
 bool buttonUnlockReq = false;
-bool alarmEn = true;
 bool alarm=false;	
+
+//bools to read from from database
+bool alarmEn = true;
 bool buttonUnlockAllow = false;
 
 
@@ -138,8 +140,10 @@ uint8_t ID[] = {0xe3, 0xdf, 0xa6, 0x2e};
 
 
 // Firebase-related variables
-const char firebaseWriteVars[][] = {"alarm" "buttonREQ" "packageCycles"};
-const char firebaseReadVars[][] = {"id_card" "RFID" "buttonALLOW" "packageCycles"};
+//microcontroller WRITES to firebase
+//const char firebaseWriteVars[][] = {"alarm" "buttonREQ" "packageCycles"};
+//microcontroller READS from firebase
+//const char firebaseReadVars[][] = {"id_card" "RFID" "buttonALLOW" "packageCycles" "alarmEn"};
 
 // This should be read prior to being set by any code, and as such firebaseRead should be
 // called in initialization to avoid overwriting.
@@ -314,6 +318,7 @@ void moveup(int c){
 }				
 void lightdisplay(void){	
     if(armed && (!interiorMotion && inside)){
+        //FIXME ADD write read for alarm and alarm enable
         if(alarmEn){
             alarm = 1;
         }
@@ -347,9 +352,7 @@ void lightdisplay(void){
     }
     else{
         armedLight = 0;
-    }
-       
-    		
+    }		
 				
 }				
 				
@@ -447,7 +450,7 @@ void setup(void){
     );
     TIM2_Config();
 
- //   ethernetInit();
+//    ethernetInit();
 
     // THIS MUST BE DONE AFTER ETHERNET IS INITIALIZED!
  //   firebaseRead();
