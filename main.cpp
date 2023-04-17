@@ -21,6 +21,7 @@
 #include "trng_api.h"
 #include "NTPclient.h"
 #include <string>
+#include <LowPowerTimer.h>
 // Nucleo Pin for MFRC522 reset (pick another D pin if you need D8)
 
 
@@ -39,15 +40,15 @@ DigitalOut greenSolenoid(PE_6); //elevatorGrnWire --> greenSolenoid
 
 
 //Control Box Inputs
-DigitalIn elevatorManual (PF_7, PullUp); //elevatorSysEn --> elevatorManual || 1 == auto :: 0 == manual
-DigitalIn mArmManual (PF_9, PullUp); // mArmManual ||  inputs : 1 == auto :: 0 == manual (active LOW)
+DigitalIn elevatorAutomatic (PF_7, PullUp); //elevatorSysEn --> elevatorAutomatic || 1 == auto :: 0 == manual
+DigitalIn mArmAutomatic (PF_9, PullUp); // mArmAutomatic ||  inputs : 1 == auto :: 0 == manual (active LOW)
 InterruptIn button(PG_0);
-DigitalIn motorUpBut(PD_0);
-DigitalIn motorDownBut(PD_1);
+DigitalIn motorUpBut(PD_0, PullUp);
+DigitalIn motorDownBut(PD_1, PullUp);
 
 //Control Box Light Outputs
 DigitalOut lightDrSysEn(PB_6);
-DigitalOut armedLight(PC_3);
+DigitalOut movingLight(PC_3);
 DigitalOut lightAccessGrnt(PA_3);
 DigitalOut lightOccupantIn(PD_7);
 DigitalOut lightOccupantOut(PD_6);
@@ -55,7 +56,7 @@ DigitalOut faultLightAlarm(PC_0);
 DigitalOut faultLightDrOpen(PD_5);
 
 //RFID Harness
-#define MF_RESET    D8
+#define MF_RESET    PC_7
 #define SPI_MOSI PB_5
 #define SPI_MISO PB_4
 #define SPI_SCK PB_3
@@ -84,7 +85,6 @@ DigitalIn mArmBmSwitch(PD_15, PullUp); //arm beam sensor (package has been induc
 //setup/base functions
 void setup(void);	
 void ethernetInit(void);	
-void delayMs(int n);
 void TIM2_Config(void);		
 void blinkLED(DigitalOut led);
 			
@@ -104,7 +104,7 @@ void buttonUnlock(void);
 
 
 //Firebase function calls
-//void firebaseRead(void);
+void firebaseRead(void);
 //void firebaseWrite(char[] command);
 
 
@@ -112,8 +112,8 @@ void buttonUnlock(void);
 bool down = false;
 bool up = false;
 int elevatorCnt = 0;
-int traveldown = 800;// number of pulses for stepper motor travel, 200 per revolution.			
-int travelup = 800;	
+int traveldown = 1600;// 50ms * c cycle = 20s
+int travelup = 1600;	
 
 //bools for tracking
 bool both=false;				
@@ -141,9 +141,9 @@ uint8_t ID[] = {0xe3, 0xdf, 0xa6, 0x2e};
 
 // Firebase-related variables
 //microcontroller WRITES to firebase
-//const char firebaseWriteVars[][] = {"alarm" "buttonREQ" "packageCycles"};
+const char firebaseWriteVars[][14] = {"alarm", "buttonREQ", "packageCycles"};
 //microcontroller READS from firebase
-//const char firebaseReadVars[][] = {"id_card" "RFID" "buttonALLOW" "packageCycles" "alarmEn"};
+const char firebaseReadVars[][14] = {"id_card", "RFID", "buttonALLOW", "packageCycles", "alarmEn"};
 
 // This should be read prior to being set by any code, and as such firebaseRead should be
 // called in initialization to avoid overwriting.
@@ -159,23 +159,33 @@ int id_card = 0 ;
 int main(void) {	
     int condition;// variable for present condition of door.	
 
-	setup();	
+	setup();
+
+    LowPowerTimer timer;	
+    timer.start();
+
     button.fall(&buttonUnlock);  		
 				
     while(1) {				      
         lightdisplay();				
         entrancedetection();
-      multiarmCtrl();
+        if(timer.read() > 30){ //if rfid timer is > 30s
+            //reset the RFID board
+            timer.stop();
+            RfChip.PCD_Init();
+            timer.reset(); //reset and start timer
+            timer.start();
 
+        }
         rfidCtrl();        
 
-//        if((buttonUnlockReq||rfidUnlockReq) && elevatorManual && mArmManual){ // "valid unlock Req from button OR rfid, AND elevator system AND multiArm are automatic	(1)	
+//        if((buttonUnlockReq||rfidUnlockReq) && elevatorAutomatic && mArmAutomatic){ // "valid unlock Req from button OR rfid, AND elevator system AND multiArm are automatic	(1)	
         if(buttonUnlockReq||rfidUnlockReq){
             opendoor();
             buttonUnlockReq = 0;
             rfidUnlockReq = 0;
         }			
-                        				        
+        multiarmCtrl();               				        
         elevatorCtrl();
     }  				
 } 
@@ -207,69 +217,59 @@ void rfidCtrl(){
 }				
 void elevatorCtrl(){
     
-    if(elevatorManual && !elevatorPkgBmSns && !elevatorDoor){ // automatic mode (1) and package present(0) and elevator's door closed(0)
-        delayMs(50000); //approx 9s 
-        movedown(traveldown);
-        delayMs(50000);
-        moveup(travelup);
-
-    }
-    if(!elevatorManual){ //if elevator in Manual mode, buttons control movement
-        if(!motorUpBut && motorDownBut){
-            if(down){ //checks to stop motor between direction VERY IMPORTANT!!
-                elevatorUp = 0;
-                elevatorDown = 0;
-                delayMs(1000);
-                down = false;
+    if(elevatorAutomatic && !elevatorPkgBmSns && !elevatorDoor){ // automatic mode (1) and package present(0) and elevator's door closed(0)
+        bool run = true;
+        for(int i = 0; i < 10; i++){
+            if(elevatorPkgBmSns){
+                run = false;
+                break;
             }
+            ThisThread::sleep_for(500ms);
+        }
+        if(run){
+            movedown(traveldown);
+            ThisThread::sleep_for(5s);
+            moveup(travelup);
+        }
+    }
+    if(!elevatorAutomatic){ //if elevator in Manual mode, buttons control movement
+        //safety OFF before running
+        elevatorUp = 0;
+        elevatorDown = 0;       
+        ThisThread::sleep_for(500ms);
+        while(!motorUpBut && motorDownBut){ //go UP
             elevatorUp = 1;
             elevatorDown = 0;
-            up = true;
-            elevatorCnt = 0;
+            movingLight = 1;
         }
-        else if(!motorDownBut && motorUpBut){
-            if(up){ //checks to stop motor between directions VERY IMPORTANT!!
-                elevatorUp = 0;
-                elevatorDown = 0;            
-                delayMs(1000);
-                up = false;
-            }
+        while(!motorDownBut && motorUpBut){ //go DOWN
             elevatorUp = 0;
             elevatorDown = 1;
-            down = true;
-            elevatorCnt = 0;
+            movingLight = 1;
         }
-        else{ //else no movement
-            elevatorUp = 0;
-            elevatorDown = 0;
-            delayMs(1);
-            elevatorCnt++;
-            if(elevatorCnt > 1000){ //if motor hasn't been active in at lease 500ms- reset up/down booleans (no longer causes delay before manual up/down) 
-                up = false;
-                down = false;
-                elevatorCnt = 1000;
-            }
-        }
+        elevatorUp = 0;
+        elevatorDown = 0;
+        movingLight = 0;
     }
 }
 
 void multiarmCtrl(){
-    if(mArmManual){ //if system is automatic call function for automatic control
+    if(mArmAutomatic){ //if system is automatic call function for automatic control
         multiarmAuto();
     }
-    else if(!mArmManual){
-        if(motorUpBut){ //move forward (CW)
-            pwmMotorCount.pulsewidth(0.0013);   //TIM2->CCR1 = cw;
-            mArmMoving = true;
+    else if(!mArmAutomatic){ //manual mode for multiarm
+        while(!motorUpBut && motorDownBut){ //move forward (CW)
+            pwmMotorCount.pulsewidth_ms(1.3);   //TIM2->CCR1 = cw;
+            movingLight = 1;
         }
-        if(motorDownBut){ //move backwards (CCW)
-            pwmMotorCount.pulsewidth(0.0017);   //TIM2->CCR1 = ccw;
-            mArmMoving = true;
+        while(!motorDownBut && motorUpBut){ //move backwards (CCW)
+            pwmMotorCount.pulsewidth_ms(1.7);   //TIM2->CCR1 = ccw;
+            movingLight = 1;
         } 
-        else{ //neither or both buttons pressed > stop motor
-            pwmMotorCount.pulsewidth(0.0015);   //TIM2->CCR1 = stopped;
-            mArmMoving = false;
-        }
+        //neither or both buttons pressed > stop motor
+        pwmMotorCount.pulsewidth_ms(1.5);   //TIM2->CCR1 = stopped;
+        movingLight = 0;
+        
     }
 }				
 							
@@ -277,7 +277,6 @@ void movedown(int c){
     int i = 0;		
     //ensure solenoid is off before proceeding
     greenSolenoid = 0;
-
 		
 				
 	//c=c/2; // count is for each coil.			
@@ -287,22 +286,19 @@ void movedown(int c){
         }	
         elevatorUp = 0;
         elevatorDown = 1;
-        delayMs(1000);		
+        movingLight = 1;
+        ThisThread::sleep_for(50ms);		
 	}	
     //motor off
     elevatorUp = 0; //A6
-    elevatorDown = 0; //A7		
+    elevatorDown = 0; //A7	
+    movingLight = 0;	
 }				
 void moveup(int c){				
     int i;				
 		
    //ensure solenoid is off before proceeding
-    greenSolenoid = 0;
-
-    //motor off delay for 1000ms (ensure no fuse blown)
-    elevatorUp = 0; //A6
-    elevatorDown = 0; //A7
-	delayMs(1000);					
+    greenSolenoid = 0;				
 				
 	//c=c/2; // count is for each coil.			
 	for(i = 0; i<= c; i++){		//at least 800 cycle * 10ms OR stop when motor has reached the top
@@ -311,11 +307,13 @@ void moveup(int c){
         }				
         elevatorUp = 1; //A6
         elevatorDown = 0; //A7
-	    delayMs(1000);							
+        movingLight = 1;
+	    ThisThread::sleep_for(50ms);							
 	}			
     // motor off
     elevatorUp = 0; //A6
-    elevatorDown = 0; //A7				
+    elevatorDown = 0; //A7
+    movingLight = 0;				
 }				
 void lightdisplay(void){	
     if(armed && (!interiorMotion && inside)){
@@ -331,7 +329,7 @@ void lightdisplay(void){
     if(!alarmEn && (armed && (outside))){ //reset the alarm enable when the person leaves
         alarmEn = true;
     }				
-	if(lightDrSysEn && (!elevatorManual)){		//LIGHTS UP WHEN SYS IS MANUAL	
+	if(lightDrSysEn && (!elevatorAutomatic)){		//LIGHTS UP WHEN SYS IS MANUAL	
 	    lightDrSysEn = 0;
     } 					
 	// Door left open fault: Delivery person walked away leaving the door open			
@@ -342,17 +340,17 @@ void lightdisplay(void){
     }		
 	if(alarm){ //armed, no motion, entrant left: Door fault			
         faultLightAlarm = 1;				
-        delayMs(1000);				
+        ThisThread::sleep_for(1s);				
 		faultLightAlarm = 0; 		
 	}	
     else{
         faultLightAlarm = 0; 
     }		
     if(elevatorUp || elevatorDown || mArmMoving){
-        armedLight = 1;
+        movingLight = 1;
     }
     else{
-        armedLight = 0;
+        movingLight = 0;
     }		
 				
 }				
@@ -424,7 +422,7 @@ void opendoor(void){
 	greenSolenoid = 1;//activate solenoid pa8			
 				
 	while ((!drClsdSwitch) && (timeout<=5)  ){//while door closed, before time runs out			
-        delayMs(500);			
+        ThisThread::sleep_for(500ms);			
         timeout++;			
 	}			
 				
@@ -439,8 +437,8 @@ void setup(void){
 	//DISABLE RELAY POWER AND CONTROL SIGNALS ZERO			
     elevatorUp = 0; elevatorDown = 0; 	 // elevator motor OFF	
     greenSolenoid = 0; // solenoid off (door locked)
-    pwmMotorCount.period(0.020);		//period 20ms (50Hz)	
-    pwmMotorCount.pulsewidth(0.0015);   //pulse width varies between 1.3, 1.5, and 1.7 ms 
+    pwmMotorCount.period_ms(20);		//period 20ms (50Hz)	
+    pwmMotorCount.pulsewidth_ms(1.5);   //pulse width varies between 1.3, 1.5, and 1.7 ms 
 
     // Init. RC522 Chip
     RfChip.PCD_Init();
@@ -451,10 +449,10 @@ void setup(void){
     );
     TIM2_Config();
 
-//    ethernetInit();
+    //ethernetInit();
 
     // THIS MUST BE DONE AFTER ETHERNET IS INITIALIZED!
- //   firebaseRead();
+  //  firebaseRead();
 
 }				
 
@@ -487,7 +485,7 @@ void blinkLED(DigitalOut led){
 void buttonUnlock(void){
     buttonUnlockReq = true;
 }
-
+/*
 void delayMs(int n){
 	while(n > 0){
 		while(!(TIM2->SR & 1)) {};
@@ -495,6 +493,7 @@ void delayMs(int n){
 		n--;
 	}
 }
+*/
 void TIM2_Config(){
 	//configure TIM2 to wrap around at 1Hz
 	RCC->APB1ENR |= 1;			//enable TIM2 clock
@@ -512,41 +511,41 @@ void multiarmAuto(void){
    // int ccw = 2720-1; (1.7ms)
     int c=0;
     
-    if(!(mArmCasePres)){//motion sensor quiet, package present
+    if(!mArmCasePres){//motion sensor quiet, package present
         induct=true;
-        pwmMotorCount.pulsewidth(0.0013);   //TIM2->CCR1 = cw;
-        mArmMoving = true;
-        delayMs(5000);//engage motor for 2.5 seconds
-        pwmMotorCount.pulsewidth(0.0015); //TIM2->CCR1 = stopped;
-        mArmMoving = false;
+        pwmMotorCount.pulsewidth_ms(1.3);   //TIM2->CCR1 = cw;
+        movingLight = 1;
+        ThisThread::sleep_for(5s);//engage motor for 2.5 seconds
+        pwmMotorCount.pulsewidth_ms(1.5); //TIM2->CCR1 = stopped;
+        movingLight = 0;
     }
     //jamming suspected.
     for(int i=0; i<2;i++){
         if(!(mArmCasePres)){
-            pwmMotorCount.pulsewidth(0.0017); //TIM2->CCR1 = ccw;
-            mArmMoving = true;
-            delayMs(2500);
-            pwmMotorCount.pulsewidth(0.0013); //TIM2->CCR1 = cw;
-            mArmMoving = true;
-            delayMs(5000);//engage motor for 2.5 seconds
-            pwmMotorCount.pulsewidth(0.0015); //TIM2->CCR1 = stopped;
-            mArmMoving = false;
+            pwmMotorCount.pulsewidth_ms(1.7); //TIM2->CCR1 = ccw;
+            movingLight = 1;
+            ThisThread::sleep_for(2500ms);
+            pwmMotorCount.pulsewidth_ms(1.3); //TIM2->CCR1 = cw;
+            movingLight = 1;
+            ThisThread::sleep_for(5s);//engage motor for 2.5 seconds
+            pwmMotorCount.pulsewidth_ms(1.5); //TIM2->CCR1 = stopped;
+            movingLight = 0;
         }
     }
     
     if((mArmCasePres&&mArmBmSwitch)&& induct ){//both beams cleared, induction started:
         while((mArmBmSwitch) && (c<100)){
-            pwmMotorCount.pulsewidth(0.0013); //TIM2->CCR1 = cw;
-            mArmMoving = true;
-            delayMs(100);
-            pwmMotorCount.pulsewidth(0.0015); //TIM2->CCR1 = stopped;
-            mArmMoving = false;
+            pwmMotorCount.pulsewidth_ms(1.3); //TIM2->CCR1 = cw;
+            movingLight = 1;
+            ThisThread::sleep_for(100ms);
+            pwmMotorCount.pulsewidth_ms(1.5); //TIM2->CCR1 = stopped;
+            movingLight = 0;
             c=c+1;
         }
         c=0;
     }
-    pwmMotorCount.pulsewidth(0.0015); //TIM2->CCR1 = stopped;
-    mArmMoving = false;
+    pwmMotorCount.pulsewidth_ms(1.5); //TIM2->CCR1 = stopped;
+    movingLight = 0;
     induct=false;
 }
 
