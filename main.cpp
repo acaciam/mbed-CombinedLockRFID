@@ -42,7 +42,7 @@ DigitalOut greenSolenoid(PE_6); //elevatorGrnWire --> greenSolenoid
 //Control Box Inputs
 DigitalIn elevatorAutomatic (PF_7, PullUp); //elevatorSysEn --> elevatorAutomatic || 1 == auto :: 0 == manual
 DigitalIn mArmAutomatic (PF_9, PullUp); // mArmAutomatic ||  inputs : 1 == auto :: 0 == manual (active LOW)
-InterruptIn button(PG_0);
+InterruptIn button(PG_0, PullUp);
 DigitalIn motorUpBut(PD_0, PullUp);
 DigitalIn motorDownBut(PD_1, PullUp);
 
@@ -136,8 +136,8 @@ bool buttonUnlockAllow = false;
 
 
 // ID card
-uint8_t ID[] = {0xe3, 0xdf, 0xa6, 0x2e};
-
+//uint8_t ID[] = {0xe3, 0xdf, 0xa6, 0x2e};
+uint8_t ID[] = {0x73, 0x3b, 0xbc, 0x1d};
 
 // Firebase-related variables
 //microcontroller WRITES to firebase
@@ -177,10 +177,11 @@ int main(void) {
             timer.start();
 
         }
-        rfidCtrl();        
+        if(elevatorAutomatic && mArmAutomatic){
+            rfidCtrl();
+        }        
 
-//        if((buttonUnlockReq||rfidUnlockReq) && elevatorAutomatic && mArmAutomatic){ // "valid unlock Req from button OR rfid, AND elevator system AND multiArm are automatic	(1)	
-        if(buttonUnlockReq||rfidUnlockReq){
+        if((buttonUnlockReq||rfidUnlockReq) && elevatorAutomatic && mArmAutomatic){ //"valid unlock Req from button OR rfid, AND elevator system AND multiArm are automatic	(1)	
             opendoor();
             buttonUnlockReq = 0;
             rfidUnlockReq = 0;
@@ -233,6 +234,7 @@ void elevatorCtrl(){
         }
     }
     if(!elevatorAutomatic){ //if elevator in Manual mode, buttons control movement
+        greenSolenoid = 0; //turn off solenoid when we enter the manual motor mode SAFETY
         //safety OFF before running
         elevatorUp = 0;
         elevatorDown = 0;       
@@ -482,14 +484,13 @@ void blinkLED(DigitalOut led){
     led = 0;
 }
 void buttonUnlock(void){
-    buttonUnlockReq = true;
+    if(elevatorAutomatic && mArmAutomatic){
+        buttonUnlockReq = true;
+    }
 }
 
 
 void multiarmAuto(void){
-   // int cw = 2080-1; (1.3ms)
-  //  int stopped = 2400-1; (1.5ms)
-   // int ccw = 2720-1; (1.7ms)
     int c=0;
     
     if(!mArmCasePres){//motion sensor quiet, package present
