@@ -85,7 +85,7 @@ DigitalIn mArmBmSwitch(PD_15, PullUp); //arm beam sensor (package has been induc
 //setup/base functions
 void setup(void);	
 void ethernetInit(void);	
-void TIM2_Config(void);		
+void PWM_Config(void);		
 void blinkLED(DigitalOut led);
 			
 //main control functions			
@@ -113,7 +113,7 @@ bool down = false;
 bool up = false;
 int elevatorCnt = 0;
 int traveldown = 1600;// 50ms * c cycle = 20s
-int travelup = 1600;	
+int travelup = 1600;
 
 //bools for tracking
 bool both=false;				
@@ -259,15 +259,15 @@ void multiarmCtrl(){
     }
     else if(!mArmAutomatic){ //manual mode for multiarm
         while(!motorUpBut && motorDownBut){ //move forward (CW)
-            pwmMotorCount.pulsewidth_ms(1.3);   //TIM2->CCR1 = cw;
+            pwmMotorCount.pulsewidth(0.0013);   //TIM2->CCR1 = cw;
             movingLight = 1;
         }
         while(!motorDownBut && motorUpBut){ //move backwards (CCW)
-            pwmMotorCount.pulsewidth_ms(1.7);   //TIM2->CCR1 = ccw;
+            pwmMotorCount.pulsewidth(0.0017);   //TIM2->CCR1 = ccw;
             movingLight = 1;
         } 
         //neither or both buttons pressed > stop motor
-        pwmMotorCount.pulsewidth_ms(1.5);   //TIM2->CCR1 = stopped;
+        pwmMotorCount.pulsewidth(0.0015);   //TIM2->CCR1 = stopped;
         movingLight = 0;
         
     }
@@ -437,8 +437,8 @@ void setup(void){
 	//DISABLE RELAY POWER AND CONTROL SIGNALS ZERO			
     elevatorUp = 0; elevatorDown = 0; 	 // elevator motor OFF	
     greenSolenoid = 0; // solenoid off (door locked)
-    pwmMotorCount.period_ms(20);		//period 20ms (50Hz)	
-    pwmMotorCount.pulsewidth_ms(1.5);   //pulse width varies between 1.3, 1.5, and 1.7 ms 
+    pwmMotorCount.period(.020);		//period 20ms (50Hz)	
+    pwmMotorCount.pulsewidth(.0015);   //pulse width varies between 1.3, 1.5, and 1.7 ms 
 
     // Init. RC522 Chip
     RfChip.PCD_Init();
@@ -447,7 +447,6 @@ void setup(void){
         /* parity */ BufferedSerial::None,
         /* stop bit */ 1
     );
-    TIM2_Config();
 
     //ethernetInit();
 
@@ -485,24 +484,6 @@ void blinkLED(DigitalOut led){
 void buttonUnlock(void){
     buttonUnlockReq = true;
 }
-/*
-void delayMs(int n){
-	while(n > 0){
-		while(!(TIM2->SR & 1)) {};
-		TIM2->SR &= ~1;
-		n--;
-	}
-}
-*/
-void TIM2_Config(){
-	//configure TIM2 to wrap around at 1Hz
-	RCC->APB1ENR |= 1;			//enable TIM2 clock
-	TIM2->PSC = 1600 - 1;   //divided by 1600
-	TIM2->ARR = 10 - 1;			//divided by 10 = 1kHz
-	TIM2->CNT = 0;					//clear counter
-	TIM2->CR1 = 1;					//enable TIM2
-}
-
 
 
 void multiarmAuto(void){
@@ -513,38 +494,38 @@ void multiarmAuto(void){
     
     if(!mArmCasePres){//motion sensor quiet, package present
         induct=true;
-        pwmMotorCount.pulsewidth_ms(1.3);   //TIM2->CCR1 = cw;
+        pwmMotorCount.pulsewidth(0.0013);   //TIM2->CCR1 = cw;
         movingLight = 1;
         ThisThread::sleep_for(5s);//engage motor for 2.5 seconds
-        pwmMotorCount.pulsewidth_ms(1.5); //TIM2->CCR1 = stopped;
+        pwmMotorCount.pulsewidth(.0015); //TIM2->CCR1 = stopped;
         movingLight = 0;
     }
     //jamming suspected.
     for(int i=0; i<2;i++){
         if(!(mArmCasePres)){
-            pwmMotorCount.pulsewidth_ms(1.7); //TIM2->CCR1 = ccw;
+            pwmMotorCount.pulsewidth(.0017); //TIM2->CCR1 = ccw;
             movingLight = 1;
             ThisThread::sleep_for(2500ms);
-            pwmMotorCount.pulsewidth_ms(1.3); //TIM2->CCR1 = cw;
+            pwmMotorCount.pulsewidth(.0013); //TIM2->CCR1 = cw;
             movingLight = 1;
             ThisThread::sleep_for(5s);//engage motor for 2.5 seconds
-            pwmMotorCount.pulsewidth_ms(1.5); //TIM2->CCR1 = stopped;
+            pwmMotorCount.pulsewidth(.0015); //TIM2->CCR1 = stopped;
             movingLight = 0;
         }
     }
     
-    if((mArmCasePres&&mArmBmSwitch)&& induct ){//both beams cleared, induction started:
-        while((mArmBmSwitch) && (c<100)){
-            pwmMotorCount.pulsewidth_ms(1.3); //TIM2->CCR1 = cw;
+    if(mArmCasePres&&mArmBmSwitch&& induct ){//button not pressed AND beam sensor connected, induction started:
+        while(mArmBmSwitch && (c<100)){ //go until beam sensor is broken
+            pwmMotorCount.pulsewidth(0.0013); //TIM2->CCR1 = cw;
             movingLight = 1;
             ThisThread::sleep_for(100ms);
-            pwmMotorCount.pulsewidth_ms(1.5); //TIM2->CCR1 = stopped;
+            pwmMotorCount.pulsewidth(0.0015); //TIM2->CCR1 = stopped;
             movingLight = 0;
             c=c+1;
         }
         c=0;
     }
-    pwmMotorCount.pulsewidth_ms(1.5); //TIM2->CCR1 = stopped;
+    pwmMotorCount.pulsewidth(.0015); //TIM2->CCR1 = stopped;
     movingLight = 0;
     induct=false;
 }
