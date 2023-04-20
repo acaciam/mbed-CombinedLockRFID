@@ -103,10 +103,6 @@ void opendoor(void);
 void buttonUnlock(void);
 
 
-//Firebase function calls
-void firebaseRead(void);
-//void firebaseWrite(char[] command);
-
 
 //controls for automatic elevator
 bool down = false;
@@ -141,9 +137,9 @@ uint8_t ID[] = {0x73, 0x3b, 0xbc, 0x1d};
 
 // Firebase-related variables
 //microcontroller WRITES to firebase
-const char firebaseWriteVars[][14] = {"alarm", "buttonREQ", "packageCycles"};
+//const char firebaseWriteVars[][14] = {"alarm", "buttonREQ", "packageCycles"};
 //microcontroller READS from firebase
-const char firebaseReadVars[][14] = {"id_card", "RFID", "buttonALLOW", "packageCycles", "alarmEn"};
+//const char firebaseReadVars[][14] = {"id_card", "RFID", "buttonALLOW", "packageCycles", "alarmEn"};
 
 // This should be read prior to being set by any code, and as such firebaseRead should be
 // called in initialization to avoid overwriting.
@@ -215,7 +211,11 @@ void rfidCtrl(){
         }
 
     }
-}				
+}
+
+//-------------------------------------------------------------------------------------------------------------------------------------------
+//---------------------------------------------------ELEVATOR CONTROLS-----------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------------------------------------------------
 void elevatorCtrl(){
     
     if(elevatorAutomatic && !elevatorPkgBmSns && !elevatorDoor){ // automatic mode (1) and package present(0) and elevator's door closed(0)
@@ -255,26 +255,6 @@ void elevatorCtrl(){
     }
 }
 
-void multiarmCtrl(){
-    if(mArmAutomatic){ //if system is automatic call function for automatic control
-        multiarmAuto();
-    }
-    else if(!mArmAutomatic){ //manual mode for multiarm
-        while(!motorUpBut && motorDownBut){ //move forward (CW)
-            pwmMotorCount.pulsewidth(0.0013);   //TIM2->CCR1 = cw;
-            movingLight = 1;
-        }
-        while(!motorDownBut && motorUpBut){ //move backwards (CCW)
-            pwmMotorCount.pulsewidth(0.0017);   //TIM2->CCR1 = ccw;
-            movingLight = 1;
-        } 
-        //neither or both buttons pressed > stop motor
-        pwmMotorCount.pulsewidth(0.0015);   //TIM2->CCR1 = stopped;
-        movingLight = 0;
-        
-    }
-}				
-							
 void movedown(int c){		
     int i = 0;		
     //ensure solenoid is off before proceeding
@@ -295,7 +275,8 @@ void movedown(int c){
     elevatorUp = 0; //A6
     elevatorDown = 0; //A7	
     movingLight = 0;	
-}				
+}		
+
 void moveup(int c){				
     int i;				
 		
@@ -316,7 +297,73 @@ void moveup(int c){
     elevatorUp = 0; //A6
     elevatorDown = 0; //A7
     movingLight = 0;				
+}
+//-------------------------------------------------------------------------------------------------------------------------------------------
+//---------------------------------------------------MULTIARM CONTROLS-----------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------------------------------------------------
+void multiarmCtrl(){
+    if(mArmAutomatic){ //if system is automatic call function for automatic control
+        multiarmAuto();
+    }
+    else if(!mArmAutomatic){ //manual mode for multiarm
+        while(!motorUpBut && motorDownBut){ //move forward (CW)
+            pwmMotorCount.pulsewidth(0.0013);   //TIM2->CCR1 = cw;
+            movingLight = 1;
+        }
+        while(!motorDownBut && motorUpBut){ //move backwards (CCW)
+            pwmMotorCount.pulsewidth(0.0017);   //TIM2->CCR1 = ccw;
+            movingLight = 1;
+        } 
+        //neither or both buttons pressed > stop motor
+        pwmMotorCount.pulsewidth(0.0015);   //TIM2->CCR1 = stopped;
+        movingLight = 0;
+        
+    }
 }				
+
+void multiarmAuto(void){
+    int c=0;
+    
+    if(!mArmCasePres){//motion sensor quiet, package present
+        induct=true;
+        pwmMotorCount.pulsewidth(0.0013);   //TIM2->CCR1 = cw;
+        movingLight = 1;
+        ThisThread::sleep_for(5s);//engage motor for 2.5 seconds
+        pwmMotorCount.pulsewidth(.0015); //TIM2->CCR1 = stopped;
+        movingLight = 0;
+    }
+    //jamming suspected.
+    for(int i=0; i<2;i++){
+        if(!(mArmCasePres)){
+            pwmMotorCount.pulsewidth(.0017); //TIM2->CCR1 = ccw;
+            movingLight = 1;
+            ThisThread::sleep_for(2500ms);
+            pwmMotorCount.pulsewidth(.0013); //TIM2->CCR1 = cw;
+            movingLight = 1;
+            ThisThread::sleep_for(5s);//engage motor for 2.5 seconds
+            pwmMotorCount.pulsewidth(.0015); //TIM2->CCR1 = stopped;
+            movingLight = 0;
+        }
+    }
+    
+    if(mArmCasePres&&mArmBmSwitch&& induct ){//button not pressed AND beam sensor connected, induction started:
+        while(mArmBmSwitch && (c<100)){ //go until beam sensor is broken
+            pwmMotorCount.pulsewidth(0.0013); //TIM2->CCR1 = cw;
+            movingLight = 1;
+            ThisThread::sleep_for(100ms);
+            pwmMotorCount.pulsewidth(0.0015); //TIM2->CCR1 = stopped;
+            movingLight = 0;
+            c=c+1;
+        }
+        c=0;
+    }
+    pwmMotorCount.pulsewidth(.0015); //TIM2->CCR1 = stopped;
+    movingLight = 0;
+    induct=false;
+}							
+//-------------------------------------------------------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------------------------------------------------------	
+//-------------------------------------------------------------------------------------------------------------------------------------------			
 void lightdisplay(void){	
     if(armed && (!interiorMotion && inside)){
         //FIXME ADD write read for alarm and alarm enable
@@ -433,7 +480,17 @@ void opendoor(void){
     greenSolenoid = 0; //A8
 		
 	lightAccessGrnt = 0; // turn off request to enter light. pb8			
-}				
+}		
+void blinkLED(DigitalOut led){
+    led = 1;
+    ThisThread::sleep_for(500ms);
+    led = 0;
+}
+void buttonUnlock(void){
+    if(elevatorAutomatic && mArmAutomatic){
+        buttonUnlockReq = true;
+    }
+}		
 //****************************Driver Setup*******************************				
 void setup(void){							
 	//DISABLE RELAY POWER AND CONTROL SIGNALS ZERO			
@@ -450,218 +507,4 @@ void setup(void){
         /* stop bit */ 1
     );
 
-    //ethernetInit();
-
-    // THIS MUST BE DONE AFTER ETHERNET IS INITIALIZED!
-  //  firebaseRead();
-
 }				
-
-void ethernetInit(){
-    // connect to the default connection access point
-    net = connect_to_default_network_interface();    
-   
-    // get NTP time and set RTC
-    NTPclient           ntp(*net);
-    printf("\nConnecting to NTP server..\n");    
-    //  NTP server address, timezone offset in seconds +/-, enable DST, set RTC 
-    if(ntp.getNTP("0.pool.ntp.org",0,1,1)){
-        time_t seconds = time(NULL);
-        printf("System time set by NTP: %s\n\n", ctime(&seconds));
-    }
-    else{printf("No NTP could not set RTC !!\n\n");}  
-    
-    printf("\nConnecting TLS re-use socket...!\n\n");
-    TLSSocket* socket = new TLSSocket();
-    startTLSreusesocket((char*)FirebaseID);
-     
-    printf("\nReady...!\n\n");	
-}				
-
-void blinkLED(DigitalOut led){
-    led = 1;
-    ThisThread::sleep_for(500ms);
-    led = 0;
-}
-void buttonUnlock(void){
-    if(elevatorAutomatic && mArmAutomatic){
-        buttonUnlockReq = true;
-    }
-}
-
-
-void multiarmAuto(void){
-    int c=0;
-    
-    if(!mArmCasePres){//motion sensor quiet, package present
-        induct=true;
-        pwmMotorCount.pulsewidth(0.0013);   //TIM2->CCR1 = cw;
-        movingLight = 1;
-        ThisThread::sleep_for(5s);//engage motor for 2.5 seconds
-        pwmMotorCount.pulsewidth(.0015); //TIM2->CCR1 = stopped;
-        movingLight = 0;
-    }
-    //jamming suspected.
-    for(int i=0; i<2;i++){
-        if(!(mArmCasePres)){
-            pwmMotorCount.pulsewidth(.0017); //TIM2->CCR1 = ccw;
-            movingLight = 1;
-            ThisThread::sleep_for(2500ms);
-            pwmMotorCount.pulsewidth(.0013); //TIM2->CCR1 = cw;
-            movingLight = 1;
-            ThisThread::sleep_for(5s);//engage motor for 2.5 seconds
-            pwmMotorCount.pulsewidth(.0015); //TIM2->CCR1 = stopped;
-            movingLight = 0;
-        }
-    }
-    
-    if(mArmCasePres&&mArmBmSwitch&& induct ){//button not pressed AND beam sensor connected, induction started:
-        while(mArmBmSwitch && (c<100)){ //go until beam sensor is broken
-            pwmMotorCount.pulsewidth(0.0013); //TIM2->CCR1 = cw;
-            movingLight = 1;
-            ThisThread::sleep_for(100ms);
-            pwmMotorCount.pulsewidth(0.0015); //TIM2->CCR1 = stopped;
-            movingLight = 0;
-            c=c+1;
-        }
-        c=0;
-    }
-    pwmMotorCount.pulsewidth(.0015); //TIM2->CCR1 = stopped;
-    movingLight = 0;
-    induct=false;
-}
-
-
-
-
-/*************FIREBASE RELATED CODE***************
-void firebaseRead(void)
-{
-    for(i = begin(firebaseReadVars); i < end(firebaseReadVars); i++)
-    {
-        char* FirebaseReader;
-        switch(firebaseRead[i])
-        {
-
-            case "RFID"
-            {
-                if(id_card == 0);
-                { 
-                    strcat(FirebaseReader, FirebaseUrl);
-                    strcat(FirebaseReader, "id0.json?auth=");
-                    strcat(FirebaseReader, FirebaseAuth);
-                    ID[0] = (uint8_t)stoi(str(getFirebase((char*)FirebaseReader)));
-                    FirebaseReader = "";
-                    strcat(FirebaseReader, FirebaseUrl);
-                    strcat(FirebaseReader, "id1.json?auth=");
-                    strcat(FirebaseReader, FirebaseAuth);
-                    ID[1] = (uint8_t)stoi(str(getFirebase((char*)FirebaseReader)));
-                    FirebaseReader = "";
-                    strcat(FirebaseReader, FirebaseUrl);
-                    strcat(FirebaseReader, "id2.json?auth=");
-                    strcat(FirebaseReader, FirebaseAuth);
-                    ID[2] = (uint8_t)stoi(str(getFirebase((char*)FirebaseReader)));
-                    FirebaseReader = "";
-                    strcat(FirebaseReader, FirebaseUrl);
-                    strcat(FirebaseReader, "id3.json?auth=");
-                    strcat(FirebaseReader, FirebaseAuth);
-                    ID[3] = (uint8_t)stoi(str(getFirebase((char*)FirebaseReader)));
-                }
-                else
-                {
-                    strcat(FirebaseReader, FirebaseUrl);
-                    strcat(FirebaseReader, "alt_id0.json?auth=");
-                    strcat(FirebaseReader, FirebaseAuth);
-                    ID[0] = (uint8_t)stoi(str(getFirebase((char*)FirebaseReader)));
-                    FirebaseReader = "";
-                    strcat(FirebaseReader, FirebaseUrl);
-                    strcat(FirebaseReader, "alt_id1.json?auth=");
-                    strcat(FirebaseReader, FirebaseAuth);
-                    ID[1] = (uint8_t)stoi(str(getFirebase((char*)FirebaseReader)));
-                    FirebaseReader = "";
-                    strcat(FirebaseReader, FirebaseUrl);
-                    strcat(FirebaseReader, "alt_id2.json?auth=");
-                    strcat(FirebaseReader, FirebaseAuth);
-                    ID[2] = (uint8_t)stoi(str(getFirebase((char*)FirebaseReader)));
-                    FirebaseReader = "";
-                    strcat(FirebaseReader, FirebaseUrl);
-                    strcat(FirebaseReader, "alt_id3.json?auth=");
-                    strcat(FirebaseReader, FirebaseAuth);
-                    ID[3] = (uint8_t)stoi(str(getFirebase((char*)FirebaseReader)));
-                }
-            }
-
-            case "buttonALLOW"
-            {
-                strcat(FirebaseReader, FirebaseUrl);
-                strcat(FirebaseReader, "buttonAllow.json?auth=");
-                strcat(FirebaseReader, FirebaseAuth);
-                char* buttonAllow = getFirebase((char*)FirebaseReader);
-                if(buttonAllow == "true")
-                {
-                    buttonUnlockAllow = true;
-                }
-                else
-                {
-                    buttonUnlockAllow = false;
-                }
-            }
-
-            case "id_card"
-            {
-                strcat(FirebaseReader, FirebaseUrl);
-                strcat(FirebaseReader, "id_card.json?auth=");
-                strcat(FirebaseReader, FirebaseAuth);
-                id_card = stoi(str(getFirebase((char*)FirebaseReader)));
-            }
-
-            case "packageCycles"
-            {
-                strcat(FirebaseReader, FirebaseUrl);
-                strcat(FirebaseReader, "packageCycles.json?auth=");
-                strcat(FirebaseReader, FirebaseAuth);
-                packageCycles = stoi(str(getFirebase((char*)FirebaseReader)));
-            }
-        }
-    }
-}
-
-void firebaseWrite(char[] command)
-{
-    switch(command)
-    {
-        char* FirebaseReader;
-        case "alarm":
-        {
-            strcat(FirebaseReader, FirebaseUrl);
-            strcat(FirebaseReader, "alarm.json?auth=");
-            strcat(FirebaseReader, FirebaseAuth);
-
-            char* alarm_write = alarm?"true":"false";
-
-            putFirebase(FirebaseReader,alarm_write);
-        }
-        case "buttonREQ":
-        {
-            strcat(FirebaseReader, FirebaseUrl);
-            strcat(FirebaseReader, "buttonREQ.json?auth=");
-            strcat(FirebaseReader, FirebaseAuth);
-
-            char* button_write = buttonUnlockReq?"true":"false";
-
-            putFirebase(FirebaseReader,button_write);
-        }
-        case "packageCycles":
-        {
-            strcat(FirebaseReader, FirebaseUrl);
-            strcat(FirebaseReader, "packageCycles.json?auth=");
-            strcat(FirebaseReader, FirebaseAuth);
-
-            char* cycles_write;
-
-            itoa(packageCycles, cycles_write, 10);
-
-            putFirebase(FirebaseReader,cycles_write);
-        }
-    }
-}*/
