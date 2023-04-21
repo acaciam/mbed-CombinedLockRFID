@@ -17,9 +17,6 @@
 #include "MFRC522.h"
 #include "stm32f4xx.h"  				
 #include <stdbool.h>	
-#include "Firebase.h"
-#include "trng_api.h"
-#include "NTPclient.h"
 #include <string>
 #include <LowPowerTimer.h>
 // Nucleo Pin for MFRC522 reset (pick another D pin if you need D8)
@@ -76,7 +73,7 @@ DigitalIn elevatorPkgBmSns(PB_11, PullUp);
 
 //Multi Arm Machine Harness
 PwmOut pwmMotorCount(PA_5);
-DigitalIn mArmOutMotionDetector(PA_6, PullUp);
+DigitalIn mArmOutMotionDetector(PA_6, PullUp); //action on 1
 DigitalIn mArmCasePres(PD_14, PullUp); //package switch (package has arrived)
 DigitalIn mArmBmSwitch(PD_15, PullUp); //arm beam sensor (package has been inducted)
 
@@ -163,25 +160,24 @@ int main(void) {
     button.fall(&buttonUnlock);  		
 				
     while(1) {				      
-        lightdisplay();				
-        entrancedetection();
-        if(timer.read() > 30){ //if rfid timer is > 30s
-            //reset the RFID board
-            timer.stop();
-            RfChip.PCD_Init();
-            timer.reset(); //reset and start timer
-            timer.start();
-
-        }
+        //only run system ops when motors are in automatic modes
         if(elevatorAutomatic && mArmAutomatic){
+            lightdisplay();				
+            entrancedetection();
+            if(timer.read() > 30){ //if rfid timer is > 30s
+                //reset the RFID board
+                timer.stop();
+                RfChip.PCD_Init();
+                timer.reset(); //reset and start timer
+                timer.start();
+            }
             rfidCtrl();
-        }        
-
-        if((buttonUnlockReq||rfidUnlockReq) && elevatorAutomatic && mArmAutomatic){ //"valid unlock Req from button OR rfid, AND elevator system AND multiArm are automatic	(1)	
-            opendoor();
-            buttonUnlockReq = 0;
-            rfidUnlockReq = 0;
-        }			
+            if((buttonUnlockReq||rfidUnlockReq)){ //"valid unlock Req from button OR rfid, AND elevator system AND multiArm are automatic	(1)	
+                opendoor();
+                buttonUnlockReq = 0;
+                rfidUnlockReq = 0;
+            }
+        }      	
         multiarmCtrl();               				        
         elevatorCtrl();
     }  				
@@ -231,6 +227,8 @@ void elevatorCtrl(){
             movedown(traveldown);
             ThisThread::sleep_for(5s);
             moveup(travelup);
+            buttonUnlockReq = 0; //clear button unlock request if it was triggered
+            packageCycles++;
         }
     }
     if(!elevatorAutomatic){ //if elevator in Manual mode, buttons control movement
@@ -360,13 +358,13 @@ void multiarmAuto(void){
     pwmMotorCount.pulsewidth(.0015); //TIM2->CCR1 = stopped;
     movingLight = 0;
     induct=false;
+    packageCycles++;
 }							
 //-------------------------------------------------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------------------------------------------------	
 //-------------------------------------------------------------------------------------------------------------------------------------------			
 void lightdisplay(void){	
     if(armed && (!interiorMotion && inside)){
-        //FIXME ADD write read for alarm and alarm enable
         if(alarmEn){
             alarm = 1;
         }
@@ -378,21 +376,23 @@ void lightdisplay(void){
     if(!alarmEn && (armed && (outside))){ //reset the alarm enable when the person leaves
         alarmEn = true;
     }				
-	if(lightDrSysEn && (!elevatorAutomatic)){		//LIGHTS UP WHEN SYS IS MANUAL	
-	    lightDrSysEn = 0;
-    } 					
+	// if(lightDrSysEn && (!elevatorAutomatic)){		//LIGHTS UP WHEN SYS IS MANUAL	
+	//     lightDrSysEn = 0;
+    // } 					
 	// Door left open fault: Delivery person walked away leaving the door open			
 	if(outside && drClsdSwitch){ //person left and door left open: Door open fault		
         faultLightDrOpen = 1; 				
 	}else{
         faultLightDrOpen = 0; 
     }		
-	if(alarm){ //armed, no motion, entrant left: Door fault			
-        faultLightAlarm = 1;				
-        ThisThread::sleep_for(1s);				
-		faultLightAlarm = 0; 		
+	if(alarm && alarmEn){ //armed, no motion, entrant left: Door fault			
+        faultLightAlarm = 1;	
+        ThisThread::sleep_for(1s);
+        faultLightAlarm = 0; 
+        alarm = 0;	
 	}	
     else{
+        alarm = 0;
         faultLightAlarm = 0; 
     }		
     if(elevatorUp || elevatorDown || mArmMoving){
@@ -444,7 +444,7 @@ void entrancedetection(void){
 	if (inside && interiorMotion){//Occupant detected and motion sensor active, alarm is armed.			
 		armed=true;		
 	}			
-	if (outside && armed && (!drClsdSwitch)){//Occupant has left and closed the door, disarm alarm.			
+	if (outside && (!drClsdSwitch)){//Occupant has left and closed the door, disarm alarm.			
 		armed=false;		
 		outside=false;		
 		lightOccupantOut = 0;	//turn off outside indicator	
@@ -470,7 +470,7 @@ void opendoor(void){
 				
 	greenSolenoid = 1;//activate solenoid pa8			
 				
-	while ((!drClsdSwitch) && (timeout<=5)  ){//while door closed, before time runs out			
+	while ((!drClsdSwitch) && (timeout<10)  ){//while door closed, before time runs out			
         ThisThread::sleep_for(500ms);			
         timeout++;			
 	}			
@@ -487,7 +487,7 @@ void blinkLED(DigitalOut led){
     led = 0;
 }
 void buttonUnlock(void){
-    if(elevatorAutomatic && mArmAutomatic){
+    if(elevatorAutomatic && mArmAutomatic && !movingLight){
         buttonUnlockReq = true;
     }
 }		
