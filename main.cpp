@@ -77,6 +77,19 @@ DigitalIn mArmOutMotionDetector(PA_6, PullUp); //action on 1
 DigitalIn mArmCasePres(PD_14, PullUp); //package switch (package has arrived)
 DigitalIn mArmBmSwitch(PD_15, PullUp); //arm beam sensor (package has been inducted)
 
+//Bluetooth Defines, sets
+const int MAXBUFFSIZE = 32;
+#define UART5_TX PC_12
+#define UART5_RX PD_2
+char buf[MAXBUFFSIZE] = {' '};
+BufferedSerial blue(UART5_TX, UART5_RX, 9600);
+
+//Precalculated values are better for speed.
+//Rather than needing to calculate, this will be a
+//simple lookup operation.
+const char hexNumbers[16] = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
+
+
 //------------------------------------------------
 
 //setup/base functions
@@ -99,7 +112,11 @@ void moveup(int d);
 void opendoor(void);
 void buttonUnlock(void);
 
-
+//function calls for bluetooth controls
+void bluetoothProcess(char c[]);
+bool idSet(char c[]);
+char* uInt8toChar(uint8_t i);
+uint8_t chartoUInt8(char c);
 
 //controls for automatic elevator
 bool down = false;
@@ -132,21 +149,7 @@ bool buttonUnlockAllow = false;
 //uint8_t ID[] = {0xe3, 0xdf, 0xa6, 0x2e};
 uint8_t ID[] = {0x73, 0x3b, 0xbc, 0x1d};
 
-// Firebase-related variables
-//microcontroller WRITES to firebase
-//const char firebaseWriteVars[][14] = {"alarm", "buttonREQ", "packageCycles"};
-//microcontroller READS from firebase
-//const char firebaseReadVars[][14] = {"id_card", "RFID", "buttonALLOW", "packageCycles", "alarmEn"};
-
-// This should be read prior to being set by any code, and as such firebaseRead should be
-// called in initialization to avoid overwriting.
 int packageCycles = -1;
-
-// Which ID card do we want to read from Firebase.
-// This is only really useful for demonstration purposes of gathering different
-// ID cards, which is configured by Firebase and set here before gathering the ID card.
-// This is why "id_card" is read from Firebase before "RFID".
-int id_card = 0 ;
 
 
 int main(void) {	
@@ -180,6 +183,15 @@ int main(void) {
         }      	
         multiarmCtrl();               				        
         elevatorCtrl();
+
+        //Bluetooth reading
+        char buf[MAXBUFFSIZE] = {0};
+        if (blue.readable()) 
+        {
+          blue.read(buf, sizeof(buf));
+          printf(buf);
+          bluetoothProcess(buf);
+        }
     }  				
 } 
 void rfidCtrl(){
@@ -191,19 +203,37 @@ void rfidCtrl(){
             // Print Card UID
             if(RfChip.uid.uidByte[0] == ID[0] && RfChip.uid.uidByte[1] == ID[1] && RfChip.uid.uidByte[2] == ID[2] && RfChip.uid.uidByte[3] == ID[3]){
                 printf("Card Match! \n");
+
+                //13 is sizeof("Card Match! \n")-1
+                blue.write("Card Match! \n", 13);
+
                 rfidUnlockReq = true;
                 blinkLED(LedGreen);
             }
             else{
                 rfidUnlockReq = false;
                 printf("Not Matching Card \n");
+
+                //13 is sizeof("Not Matching Card \n")-1
+                blue.write("Not Matching Card \n", 20);
+
                 blinkLED(LedRed);
             }
             printf("Card UID: ");
+            
+            // 10 is sizeof("Card UID: ")-1
+            blue.write("Card UID: ", 10);
+
             for (uint8_t i = 0; i < RfChip.uid.size; i++){
                 printf(" %X", RfChip.uid.uidByte[i]);
+
+                //Tell the bluetooth the UID of the card just read
+                blue.write(uInt8toChar(RfChip.uid.uidByte[i]), 1);
             }
             printf("\n\n\r");
+
+            // 1 is sizeof("\n")-1
+            blue.write("\n", 1);
         }
 
     }
@@ -367,15 +397,19 @@ void lightdisplay(void){
     if(armed && (!interiorMotion && inside)){
         if(alarmEn){
             alarm = 1;
+
+            //15 is the sizeof("Alarm set off!\n")-1
+            blue.write("Alarm set off!\n", 15);
         }
         else{
             alarm = 0;
         }
     }
+    /*
     //FIXME remove when the app is set up so only app change change enabled status
     if(!alarmEn && (armed && (outside))){ //reset the alarm enable when the person leaves
         alarmEn = true;
-    }				
+    }*/
 	// if(lightDrSysEn && (!elevatorAutomatic)){		//LIGHTS UP WHEN SYS IS MANUAL	
 	//     lightDrSysEn = 0;
     // } 					
@@ -489,6 +523,9 @@ void blinkLED(DigitalOut led){
 void buttonUnlock(void){
     if(elevatorAutomatic && mArmAutomatic && !movingLight){
         buttonUnlockReq = true;
+
+        //17 is the sizeof("[button:Allow] ?\n")-1
+        blue.write("[button:Allow] ?\n", 17);
     }
 }		
 //****************************Driver Setup*******************************				
@@ -506,5 +543,204 @@ void setup(void){
         /* parity */ BufferedSerial::None,
         /* stop bit */ 1
     );
+    blue.set_format(
+        /* bits */ 8,
+        /* parity */ BufferedSerial::None,
+        /* stop bit */ 1
+    );
 
 }				
+
+// Bluetooth-focused Function Calls
+
+char* uInt8toChar(uint8_t i)
+{
+    int hi = i>>4;
+    int lo = i&0x0f;
+    char c[] = {hexNumbers[hi],hexNumbers[lo]};
+    return (char*)c;
+}
+
+void bluetoothProcess(char c[])
+{
+    //Pre-processed input for speed.
+    for(int i = 0; i < sizeof(c); i++)
+    {
+        char ca = c[i];
+        c[i] = toupper(ca);
+    }
+
+    // only checking the first two characters for speed's sake.
+
+    // Alarm Processing
+    // Assumed input is "ALARM:True" / "ALARM:False"
+    // This will
+    if(c[0] == 'A' && c[1] =='L')
+    {
+        if(c[6] == 'T')
+        {
+            alarmEn = true;
+            return;
+        }
+        else if(c[6] == 'F')
+        {
+            alarmEn = false;
+            return;
+        }
+
+        // 15 is sizeof("Invalid input.\n")
+        blue.write("Invalid input.\n", 15);
+        return;
+    }
+
+    // Unlock Request Processing
+    // Assumed input is "UNLOCK:ALLOW" / "UNLOCK:DENY" / "UNLOCK:NO" / "UNLOCK:YES"
+    if(c[0] == 'U' && c[1] =='N')
+    {
+        if(c[7] == 'A' || c[7] == 'Y')
+        {
+            buttonUnlockAllow = true;
+            buttonUnlockReq = false;
+            return;
+        }
+
+        if(c[7] == 'D' || c[7] == 'N')
+        {
+            buttonUnlockAllow = false;
+            buttonUnlockReq = true;
+            return;
+        }
+
+        // 15 is sizeof("Invalid input.\n")
+        blue.write("Invalid input.\n", 15);
+        return;
+    }
+
+    // Package Cycles Report Processing
+    // Assumed input is "PC"
+    if(c[0] == 'P' && c[1] =='C')
+    {
+        string s = to_string(packageCycles);
+        blue.write(s.c_str(), sizeof(s.length()));
+        
+        // New Line
+        blue.write("\n", 1);
+        return;
+    }
+
+    // ID Card Change Processing
+    // Assumed input is "ID:{UID[0]}{UID[1]}{UID[2]}{UID[3}}"
+    // With UID numbers in HEX format, without 0x.
+    // 0xe3 would be put in "E3".
+    if(c[0] == 'I' && c[1] =='D')
+    {
+        if(idSet(c))
+        {
+            return;
+        }
+        // 15 is sizeof("Invalid input.\n")
+        blue.write("Invalid input.\n", 15);
+        return;
+    }
+
+    // 
+    if(c[0] == 'A' && c[1] =='L')
+    {
+
+
+        // 15 is sizeof("Invalid input.\n")
+        blue.write("Invalid input.\n", 15);
+        return;
+    }
+};
+
+
+bool idSet(char c[])
+{
+    // This is the simplest
+    // I have written in a good while.
+    // But this was chosen for speed.
+    // Much like the pre-processing of the writes
+    // for static printing to bluetooth terminal.
+    // was done for speed.
+    bool err = false;
+    uint8_t futureID[8] = {0};
+    // Process the characters into INTs and sanitizes them.
+    for(int i = 0; i < 8; i++);
+    {
+        futureID[i] = chartoUInt8(c[3+i]);
+        if(futureID[i] > (uint8_t)15)
+        {
+            return false;
+        }
+    }
+
+    //16 is sizeOf("Writing ID Card ")-1
+    blue.write("Writing ID Card ", 16);
+    for(int i = 0; i<4; i++)
+    {
+        ID[i] = (futureID[i]<<4) | futureID[i+1];
+        blue.write(uInt8toChar(ID[i]),2);
+    }
+    blue.write("\n",0);
+    return true;
+};
+
+
+uint8_t chartoUInt8(char c)
+{
+    // Simple, works, and also has a fail case to make sure that errors on input are caught.
+    switch (c){
+        case '0':
+            i = 0;
+            break;
+        case '1':
+            i = 1;
+            break;
+        case '2':
+            i = 2;
+            break;
+        case '3':
+            i = 3;
+            break;
+        case '4':
+            i = 4;
+            break;
+        case '5':
+            i = 5;
+            break;
+        case '6':
+            i = 6;
+            break;
+        case '7':
+            i = 7;
+            break;
+        case '8':
+            i = 8;
+            break;
+        case '9':
+            i = 9;
+            break;
+        case 'A':
+            i = 0x0A;
+            break;
+        case 'B':
+            i = 0x0B;
+            break;
+        case 'C':
+            i = 0x0C;
+            break;
+        case 'D':
+            i = 0x0D;
+            break;
+        case 'E':
+            i = 0x0E;
+            break;
+        case 'F':
+            i = 0x0F;
+            break;
+        default:
+            i = 22;
+    }
+    return (uint8_t)i;
+};
