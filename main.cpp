@@ -654,7 +654,7 @@ bool idSet(char c[])
     bool err = false;
     uint8_t futureID[8] = {0};
     // Process the characters into INTs and sanitizes them.
-    for(int i = 0; i < 8; i++);
+    for(int i = 0; i < 8; i++)
     {
         futureID[i] = chartoUInt8(c[3+i]);
         if(futureID[i] > (uint8_t)15)
@@ -679,6 +679,7 @@ uint8_t chartoUInt8(char c)
 {
     // Simple, works, and also has a fail case 
     // to make sure that errors on input are caught.
+    uint8_t i;
     switch (c){
         case '0':
             i = 0;
