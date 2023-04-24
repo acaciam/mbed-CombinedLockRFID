@@ -642,24 +642,12 @@ void bluetoothProcess(char c[])
         blue.write("Invalid input.\n", 15);
         return;
     }
-
-    // 
-    if(c[0] == 'A' && c[1] =='L')
-    {
-
-
-        // 15 is sizeof("Invalid input.\n")
-        blue.write("Invalid input.\n", 15);
-        return;
-    }
 };
 
 
 bool idSet(char c[])
 {
-    // This is the simplest
-    // I have written in a good while.
-    // But this was chosen for speed.
+    // This was chosen for speed.
     // Much like the pre-processing of the writes
     // for static printing to bluetooth terminal.
     // was done for speed.
@@ -679,7 +667,7 @@ bool idSet(char c[])
     blue.write("Writing ID Card ", 16);
     for(int i = 0; i<4; i++)
     {
-        ID[i] = (futureID[i]<<4) | futureID[i+1];
+        ID[i] = (futureID[2*i]<<4) | futureID[(2*i)+1];
         blue.write(uInt8toChar(ID[i]),2);
     }
     blue.write("\n",0);
@@ -689,7 +677,8 @@ bool idSet(char c[])
 
 uint8_t chartoUInt8(char c)
 {
-    // Simple, works, and also has a fail case to make sure that errors on input are caught.
+    // Simple, works, and also has a fail case 
+    // to make sure that errors on input are caught.
     switch (c){
         case '0':
             i = 0;
