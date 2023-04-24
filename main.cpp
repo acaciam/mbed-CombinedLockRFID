@@ -125,6 +125,11 @@ int elevatorCnt = 0;
 int traveldown = 1600;// 50ms * c cycle = 20s
 int travelup = 1600;
 
+//controls for multiarm
+float cw = 0.0013;
+float stop = 0.0015;
+float ccw = 0.0017;
+
 //bools for tracking
 bool both=false;				
 bool leaving= false;			
@@ -335,15 +340,15 @@ void multiarmCtrl(){
     }
     else if(!mArmAutomatic){ //manual mode for multiarm
         while(!motorUpBut && motorDownBut){ //move forward (CW)
-            pwmMotorCount.pulsewidth(0.0013);   //TIM2->CCR1 = cw;
+            pwmMotorCount.pulsewidth(cw);   //TIM2->CCR1 = cw;
             movingLight = 1;
         }
         while(!motorDownBut && motorUpBut){ //move backwards (CCW)
-            pwmMotorCount.pulsewidth(0.0017);   //TIM2->CCR1 = ccw;
+            pwmMotorCount.pulsewidth(ccw);   //TIM2->CCR1 = ccw;
             movingLight = 1;
         } 
         //neither or both buttons pressed > stop motor
-        pwmMotorCount.pulsewidth(0.0015);   //TIM2->CCR1 = stopped;
+        pwmMotorCount.pulsewidth(stop);   //TIM2->CCR1 = stopped;
         movingLight = 0;
         
     }
@@ -354,38 +359,38 @@ void multiarmAuto(void){
     
     if(!mArmCasePres){//motion sensor quiet, package present
         induct=true;
-        pwmMotorCount.pulsewidth(0.0013);   //TIM2->CCR1 = cw;
+        pwmMotorCount.pulsewidth(cw);   //TIM2->CCR1 = cw;
         movingLight = 1;
-        ThisThread::sleep_for(5s);//engage motor for 2.5 seconds
-        pwmMotorCount.pulsewidth(.0015); //TIM2->CCR1 = stopped;
+        ThisThread::sleep_for(2500ms);//engage motor for 2.5 seconds
+        pwmMotorCount.pulsewidth(stop); //TIM2->CCR1 = stopped;
         movingLight = 0;
     }
     //jamming suspected.
     for(int i=0; i<2;i++){
         if(!(mArmCasePres)){
-            pwmMotorCount.pulsewidth(.0017); //TIM2->CCR1 = ccw;
+            pwmMotorCount.pulsewidth(ccw); //TIM2->CCR1 = ccw;
             movingLight = 1;
             ThisThread::sleep_for(2500ms);
-            pwmMotorCount.pulsewidth(.0013); //TIM2->CCR1 = cw;
+            pwmMotorCount.pulsewidth(cw); //TIM2->CCR1 = cw;
             movingLight = 1;
             ThisThread::sleep_for(5s);//engage motor for 2.5 seconds
-            pwmMotorCount.pulsewidth(.0015); //TIM2->CCR1 = stopped;
+            pwmMotorCount.pulsewidth(stop); //TIM2->CCR1 = stopped;
             movingLight = 0;
         }
     }
     
-    if(mArmCasePres&&mArmBmSwitch&& induct ){//button not pressed AND beam sensor connected, induction started:
+    if(mArmCasePres&&mArmBmSwitch&& induct){//button not pressed AND beam sensor connected, induction started:
         while(mArmBmSwitch && (c<100)){ //go until beam sensor is broken
-            pwmMotorCount.pulsewidth(0.0013); //TIM2->CCR1 = cw;
+            pwmMotorCount.pulsewidth(cw); //TIM2->CCR1 = cw;
             movingLight = 1;
             ThisThread::sleep_for(100ms);
-            pwmMotorCount.pulsewidth(0.0015); //TIM2->CCR1 = stopped;
+            pwmMotorCount.pulsewidth(stop); //TIM2->CCR1 = stopped;
             movingLight = 0;
             c=c+1;
         }
         c=0;
     }
-    pwmMotorCount.pulsewidth(.0015); //TIM2->CCR1 = stopped;
+    pwmMotorCount.pulsewidth(stop); //TIM2->CCR1 = stopped;
     movingLight = 0;
     induct=false;
     packageCycles++;
