@@ -81,14 +81,15 @@ DigitalIn mArmBmSwitch(PD_15, PullUp); //arm beam sensor (package has been induc
 const int MAXBUFFSIZE = 32;
 #define UART5_TX PC_12
 #define UART5_RX PD_2
-char buf[MAXBUFFSIZE] = {' '};
 BufferedSerial blue(UART5_TX, UART5_RX, 9600);
+bool unlockReq = false;
 
 //Precalculated values are better for speed.
 //Rather than needing to calculate, this will be a
 //simple lookup operation.
 const char hexNumbers[16] = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
 
+char c_hex[2] = {'0','0'};
 
 //------------------------------------------------
 
@@ -115,7 +116,7 @@ void buttonUnlock(void);
 //function calls for bluetooth controls
 void bluetoothProcess(char c[]);
 bool idSet(char c[]);
-char* uInt8toChar(uint8_t i);
+void uInt8toChar(uint8_t i);
 uint8_t chartoUInt8(char c);
 
 //controls for automatic elevator
@@ -136,11 +137,11 @@ bool outside=false;
 bool mArmMoving = false;
 bool rfidUnlockReq = false;
 
-//bools to write to firebase
+//bools to write to
 bool buttonUnlockReq = false;
 bool alarm=false;	
 
-//bools to read from from database
+//bools to read from
 bool alarmEn = true;
 bool buttonUnlockAllow = false;
 
@@ -175,23 +176,41 @@ int main(void) {
                 timer.start();
             }
             rfidCtrl();
-            if((buttonUnlockReq||rfidUnlockReq)){ //"valid unlock Req from button OR rfid, AND elevator system AND multiArm are automatic	(1)	
+            if(((buttonUnlockAllow && buttonUnlockReq)||rfidUnlockReq)){ //"valid unlock Req from button OR rfid, AND elevator system AND multiArm are automatic	(1)	
                 opendoor();
-                buttonUnlockReq = 0;
-                rfidUnlockReq = 0;
+                buttonUnlockAllow = false;
+                buttonUnlockReq = false;
+                unlockReq = false;
+                rfidUnlockReq = false;
+                printf("Door opened.\n");
+                blue.write("Door opened.\n", 13);
             }
         }      	
         multiarmCtrl();               				        
         elevatorCtrl();
-
+        
         //Bluetooth reading
-        char buf[MAXBUFFSIZE] = {0};
         if (blue.readable()) 
         {
-          blue.read(buf, sizeof(buf));
-          printf(buf);
-          bluetoothProcess(buf);
+            wait_us(30000);
+            char buf[MAXBUFFSIZE] = {0};
+            blue.read(buf, sizeof(buf));
+            printf(buf);
+            bluetoothProcess(buf);
         }
+        if(buttonUnlockReq && !unlockReq)
+        {
+            unlockReq = true;
+            //34 is the sizeof("[UNLOCK:ALLOW] or [UNLOCK:DENY] ?\n")-1
+            blue.write("[UNLOCK:ALLOW] or [UNLOCK:DENY] ?\n", 34);
+        }
+        if(alarm)
+        {
+            //15 is the sizeof("Alarm set off!\n")-1
+            blue.write("Alarm set off!\n", 15);
+        }
+        
+        buttonUnlockReq = false;
     }  				
 } 
 void rfidCtrl(){
@@ -214,8 +233,8 @@ void rfidCtrl(){
                 rfidUnlockReq = false;
                 printf("Not Matching Card \n");
 
-                //13 is sizeof("Not Matching Card \n")-1
-                blue.write("Not Matching Card \n", 20);
+                //19 is sizeof("Not Matching Card \n")-1
+                blue.write("Not Matching Card \n", 19);
 
                 blinkLED(LedRed);
             }
@@ -226,9 +245,9 @@ void rfidCtrl(){
 
             for (uint8_t i = 0; i < RfChip.uid.size; i++){
                 printf(" %X", RfChip.uid.uidByte[i]);
-
+                uInt8toChar(RfChip.uid.uidByte[i]);
                 //Tell the bluetooth the UID of the card just read
-                blue.write(uInt8toChar(RfChip.uid.uidByte[i]), 1);
+                blue.write(c_hex, 2);
             }
             printf("\n\n\r");
 
@@ -397,9 +416,6 @@ void lightdisplay(void){
     if(armed && (!interiorMotion && inside)){
         if(alarmEn){
             alarm = 1;
-
-            //15 is the sizeof("Alarm set off!\n")-1
-            blue.write("Alarm set off!\n", 15);
         }
         else{
             alarm = 0;
@@ -523,9 +539,6 @@ void blinkLED(DigitalOut led){
 void buttonUnlock(void){
     if(elevatorAutomatic && mArmAutomatic && !movingLight){
         buttonUnlockReq = true;
-
-        //17 is the sizeof("[button:Allow] ?\n")-1
-        blue.write("[button:Allow] ?\n", 17);
     }
 }		
 //****************************Driver Setup*******************************				
@@ -553,27 +566,18 @@ void setup(void){
 
 // Bluetooth-focused Function Calls
 
-char* uInt8toChar(uint8_t i)
+void uInt8toChar(uint8_t i)
 {
-    int hi = i>>4;
-    int lo = i&0x0f;
-    char c[] = {hexNumbers[hi],hexNumbers[lo]};
-    return (char*)c;
+    uint8_t hi = ((i>>4)&0x0f);
+    uint8_t lo = i&0x0f;
+    c_hex[0] = hexNumbers[(int)hi];
+    c_hex[1] = hexNumbers[(int)lo];
 }
 
 void bluetoothProcess(char c[])
 {
-    //Pre-processed input for speed.
-    for(int i = 0; i < sizeof(c); i++)
-    {
-        char ca = c[i];
-        c[i] = toupper(ca);
-    }
-
-    // only checking the first two characters for speed's sake.
-
     // Alarm Processing
-    // Assumed input is "ALARM:True" / "ALARM:False"
+    // Assumed input is "ALARM:TRUE" / "ALARM:FALSE"
     // This will
     if(c[0] == 'A' && c[1] =='L')
     {
@@ -594,20 +598,19 @@ void bluetoothProcess(char c[])
     }
 
     // Unlock Request Processing
-    // Assumed input is "UNLOCK:ALLOW" / "UNLOCK:DENY" / "UNLOCK:NO" / "UNLOCK:YES"
+    // Assumed input is "UNLOCK:ALLOW" / "UNLOCK:DENY"
     if(c[0] == 'U' && c[1] =='N')
     {
-        if(c[7] == 'A' || c[7] == 'Y')
+        if(c[7] == 'A')
         {
             buttonUnlockAllow = true;
-            buttonUnlockReq = false;
             return;
         }
 
-        if(c[7] == 'D' || c[7] == 'N')
+        if(c[7] == 'D')
         {
             buttonUnlockAllow = false;
-            buttonUnlockReq = true;
+            unlockReq = false;
             return;
         }
 
@@ -629,7 +632,7 @@ void bluetoothProcess(char c[])
     }
 
     // ID Card Change Processing
-    // Assumed input is "ID:{UID[0]}{UID[1]}{UID[2]}{UID[3}}"
+    // Assumed input is "ID:{UID[0]}{UID[1]}{UID[2]}{UID[3]}"
     // With UID numbers in HEX format, without 0x.
     // 0xe3 would be put in "E3".
     if(c[0] == 'I' && c[1] =='D')
@@ -642,6 +645,13 @@ void bluetoothProcess(char c[])
         blue.write("Invalid input.\n", 15);
         return;
     }
+
+    blue.write("List of valid commands:\n\n", 25);
+    blue.write("'ID:{UID[0]}{UID[1]}{UID[2]}{UID[3]}'\nIN UPPERCASE HEX FORMAT.\n\n", 64);
+    blue.write("'UNLOCK:ALLOW' / 'UNLOCK:DENY'\n", 31);
+    blue.write("'PC'\n", 5);
+    blue.write("'ALARM:TRUE' / 'ALARM:FALSE'\n", 29);
+    return;
 };
 
 
@@ -651,7 +661,6 @@ bool idSet(char c[])
     // Much like the pre-processing of the writes
     // for static printing to bluetooth terminal.
     // was done for speed.
-    bool err = false;
     uint8_t futureID[8] = {0};
     // Process the characters into INTs and sanitizes them.
     for(int i = 0; i < 8; i++)
@@ -668,9 +677,10 @@ bool idSet(char c[])
     for(int i = 0; i<4; i++)
     {
         ID[i] = (futureID[2*i]<<4) | futureID[(2*i)+1];
-        blue.write(uInt8toChar(ID[i]),2);
+        uInt8toChar(ID[i]);
+        blue.write(c_hex,2);
     }
-    blue.write("\n",0);
+    blue.write("\n",1);
     return true;
 };
 
