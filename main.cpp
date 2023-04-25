@@ -73,9 +73,9 @@ DigitalIn elevatorPkgBmSns(PB_11, PullUp);
 
 //Multi Arm Machine Harness
 PwmOut pwmMotorCount(PA_5);
-DigitalIn mArmOutMotionDetector(PA_6, PullUp); //action on 1
+DigitalIn mArmEndBmSns(PA_6, PullUp); //action on 1
 DigitalIn mArmCasePres(PD_14, PullUp); //package switch (package has arrived)
-DigitalIn mArmBmSwitch(PD_15, PullUp); //arm beam sensor (package has been inducted)
+DigitalIn mArmHomeBmSns(PD_15, PullUp); //arm beam sensor (package has been inducted)
 
 //Bluetooth Defines, sets
 const int MAXBUFFSIZE = 32;
@@ -126,9 +126,9 @@ int traveldown = 1600;// 50ms * c cycle = 20s
 int travelup = 1600;
 
 //controls for multiarm
-float cw = 0.0013;
+float cw = (0.00145);
 float stop = 0.0015;
-float ccw = 0.0017;
+float ccw = (0.00155);
 
 //bools for tracking
 bool both=false;				
@@ -357,43 +357,40 @@ void multiarmCtrl(){
 void multiarmAuto(void){
     int c=0;
     
-    if(!mArmCasePres){//motion sensor quiet, package present
-        induct=true;
-        pwmMotorCount.pulsewidth(cw);   //TIM2->CCR1 = cw;
-        movingLight = 1;
-        ThisThread::sleep_for(2500ms);//engage motor for 2.5 seconds
+    if(!mArmCasePres){//motion sensor quiet, package present enter induction cycle loop
+        //induct package
+        while(mArmEndBmSns && c < 250){ //run system until end beam sensor is broken or if the system takes longer than 2.5s
+            induct=true; //probably no longer necessary
+            pwmMotorCount.pulsewidth(ccw); 
+            movingLight = 1;
+            ThisThread::sleep_for(10ms);
+            c++;
+        }
         pwmMotorCount.pulsewidth(stop); //TIM2->CCR1 = stopped;
         movingLight = 0;
-    }
-    //jamming suspected.
-    for(int i=0; i<2;i++){
-        if(!(mArmCasePres)){
-            pwmMotorCount.pulsewidth(ccw); //TIM2->CCR1 = ccw;
-            movingLight = 1;
-            ThisThread::sleep_for(2500ms);
-            pwmMotorCount.pulsewidth(cw); //TIM2->CCR1 = cw;
-            movingLight = 1;
-            ThisThread::sleep_for(5s);//engage motor for 2.5 seconds
-            pwmMotorCount.pulsewidth(stop); //TIM2->CCR1 = stopped;
-            movingLight = 0;
-        }
-    }
-    
-    if(mArmCasePres&&mArmBmSwitch&& induct){//button not pressed AND beam sensor connected, induction started:
-        while(mArmBmSwitch && (c<100)){ //go until beam sensor is broken
-            pwmMotorCount.pulsewidth(cw); //TIM2->CCR1 = cw;
-            movingLight = 1;
-            ThisThread::sleep_for(100ms);
-            pwmMotorCount.pulsewidth(stop); //TIM2->CCR1 = stopped;
-            movingLight = 0;
-            c=c+1;
+        if(c == 250){ //is c=250 there was a jam / error. Communicate this to user via bluetooth
+            //FIXME DANIEL - alert inducting error
         }
         c=0;
+
+        //return arm to home position because end was reach or there was a jam
+        while(mArmHomeBmSns && c < 250){  //move until bm sensor is broke telling us we are in home position or 2.5s has passed
+            pwmMotorCount.pulsewidth(cw); //TIM2->CCR1 = cw;
+            movingLight = 1;
+            ThisThread::sleep_for(10ms);
+            c++;
+        }
+        pwmMotorCount.pulsewidth(stop); //TIM2->CCR1 = stopped;
+        movingLight = 0;
+        if(c == 250){ //is c=250 there was a jam / error. Communicate this to user via bluetooth
+            //FIXME DANIEL - alert can't return home
+        }
+        c=0;
+
+        induct=false;
+        packageCycles++;
     }
-    pwmMotorCount.pulsewidth(stop); //TIM2->CCR1 = stopped;
-    movingLight = 0;
-    induct=false;
-    packageCycles++;
+
 }							
 //-------------------------------------------------------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------------------------------------------------------	
