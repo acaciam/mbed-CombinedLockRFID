@@ -375,7 +375,7 @@ void multiarmCtrl(){
 
 void multiarmAuto(void){
     int c=0;
-    
+    ThisThread::sleep_for(1500ms);
     if(!mArmCasePres){//motion sensor quiet, package present enter induction cycle loop
         //induct package
         while(mArmEndBmSns && c < 250){ //run system until end beam sensor is broken or if the system takes longer than 2.5s
@@ -393,11 +393,9 @@ void multiarmAuto(void){
         c=0;
 
         //return arm to home position because end was reach or there was a jam
-        while(mArmHomeBmSns && c < 250){  //move until bm sensor is broke telling us we are in home position or 2.5s has passed
+        while(mArmHomeBmSns){  //move until bm sensor is broke telling us we are in home position or 2.5s has passed
             pwmMotorCount.pulsewidth(cw); //TIM2->CCR1 = cw;
             movingLight = 1;
-            ThisThread::sleep_for(10ms);
-            c++;
         }
         pwmMotorCount.pulsewidth(stop); //TIM2->CCR1 = stopped;
         movingLight = 0;
@@ -521,7 +519,7 @@ void opendoor(void){
 				
 				
 	greenSolenoid = 1;//activate solenoid pa8			
-				
+			
 	while ((!drClsdSwitch) && (timeout<10)  ){//while door closed, before time runs out			
         ThisThread::sleep_for(500ms);			
         timeout++;			
