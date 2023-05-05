@@ -209,11 +209,6 @@ int main(void) {
             //34 is the sizeof("[UNLOCK:ALLOW] or [UNLOCK:DENY] ?\n")-1
             blue.write("[UNLOCK:ALLOW] or [UNLOCK:DENY] ?\n", 34);
         }
-        if(alarm)
-        {
-            //15 is the sizeof("Alarm set off!\n")-1
-            blue.write("Alarm set off!\n", 15);
-        }
         
         buttonUnlockReq = false;
     }  				
@@ -375,8 +370,12 @@ void multiarmCtrl(){
 
 void multiarmAuto(void){
     int c=0;
-    ThisThread::sleep_for(1500ms);
+
     if(!mArmCasePres){//motion sensor quiet, package present enter induction cycle loop
+
+        // Sleeping at the right location for demonstration
+        ThisThread::sleep_for(1500ms);
+
         //induct package
         while(mArmEndBmSns && c < 250){ //run system until end beam sensor is broken or if the system takes longer than 2.5s
             induct=true; //probably no longer necessary
@@ -416,6 +415,7 @@ void lightdisplay(void){
     if(armed && (!interiorMotion && inside)){
         if(alarmEn){
             alarm = 1;
+            blue.write("Alarm set off!\n", 15);
         }
         else{
             alarm = 0;
