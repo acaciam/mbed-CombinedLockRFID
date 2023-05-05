@@ -421,6 +421,9 @@ void lightdisplay(void){
             alarm = 0;
         }
     }
+    else{
+        alarm = 0;
+    }
     /*
     //FIXME remove when the app is set up so only app change change enabled status
     if(!alarmEn && (armed && (outside))){ //reset the alarm enable when the person leaves
